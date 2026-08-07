@@ -1,0 +1,258 @@
+// Aegis — AI Agent Control Plane
+// Prisma schema. PostgreSQL is the intended production database.
+//
+// Domain shape:
+//   Organization is the tenant boundary. Every tenant-owned resource
+//   (Agent, ActivityEvent, and future Policy/Approval/Cost/Audit/ApiKey
+//   models) carries an organizationId and must be reached only through
+//   server-side queries that verify the caller's membership first.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth — Auth.js (NextAuth v5) compatible models, plus a local passwordHash
+// for the credentials provider. Account/Session/VerificationToken keep the
+// schema ready for OAuth providers later without any structural change.
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+  memberships OrganizationMember[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Multi-tenancy
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      String   @default("free")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members        OrganizationMember[]
+  agents         Agent[]
+  activityEvents ActivityEvent[]
+
+  @@map("organizations")
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  ENGINEER
+  SECURITY
+  VIEWER
+}
+
+model OrganizationMember {
+  id             String     @id @default(cuid())
+  organizationId String
+  userId         String
+  role           MemberRole @default(ENGINEER)
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+// ---------------------------------------------------------------------------
+// Agents
+// ---------------------------------------------------------------------------
+
+enum AgentStatus {
+  ACTIVE
+  PAUSED
+  NEEDS_ATTENTION
+  ARCHIVED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum Environment {
+  PRODUCTION
+  STAGING
+  DEVELOPMENT
+}
+
+model Agent {
+  id             String @id @default(cuid())
+  organizationId String
+
+  name        String
+  slug        String
+  description String?      @db.Text
+  status      AgentStatus  @default(ACTIVE)
+  riskLevel   RiskLevel    @default(LOW)
+  environment Environment  @default(PRODUCTION)
+
+  owner String // owning team or individual, e.g. "Revenue", "Platform"
+
+  modelProvider String // e.g. "OpenAI", "Anthropic"
+  modelName     String // e.g. "gpt-4.1", "claude-sonnet-4.5"
+  framework     String? // e.g. "LangChain", "custom"
+  sdkVersion    String?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastActiveAt DateTime?
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tools          AgentTool[]
+  activityEvents ActivityEvent[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, status])
+  @@map("agents")
+}
+
+model AgentTool {
+  id       String @id @default(cuid())
+  agentId  String
+  name     String // e.g. "CRM", "Email", "Zendesk"
+  category String // e.g. "Data", "Communication", "Deployment"
+
+  createdAt DateTime @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, name])
+  @@map("agent_tools")
+}
+
+// ---------------------------------------------------------------------------
+// Structured activity — the event backbone. Frequently filtered fields are
+// real columns (not JSON) so activity, cost, and future policy/audit
+// features can query and index them directly. `metadata` carries the
+// long tail of action-specific detail.
+// ---------------------------------------------------------------------------
+
+enum ActivityType {
+  TOOL_CALL
+  MODEL_CALL
+  DATA_ACCESS
+  ACTION
+  DEPLOYMENT
+  COMMUNICATION
+  FINANCIAL
+  SYSTEM
+}
+
+enum ActivityStatus {
+  ALLOWED
+  BLOCKED
+  APPROVAL_REQUIRED
+  FAILED
+}
+
+model ActivityEvent {
+  id             String @id @default(cuid())
+  organizationId String
+  agentId        String
+
+  timestamp DateTime @default(now())
+
+  eventType ActivityType
+  action    String // machine-readable action code, e.g. "read_crm_contact"
+  resource  String? // e.g. "contact:acme-inc", "invoice:inv_1234"
+
+  status    ActivityStatus @default(ALLOWED)
+  riskLevel RiskLevel      @default(LOW)
+
+  durationMs Int?
+
+  modelProvider String?
+  modelName     String?
+  costCents     Int?
+
+  traceId       String?
+  parentEventId String?
+
+  errorMessage String? @db.Text
+  metadata     Json?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, timestamp])
+  @@index([agentId, timestamp])
+  @@index([organizationId, status])
+  @@index([organizationId, riskLevel])
+  @@index([traceId])
+  @@map("activity_events")
+}

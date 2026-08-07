@@ -1,0 +1,147 @@
+import type { Metadata } from "next";
+import { Bot, CheckCircle2, AlertTriangle, TrendingUp, ArrowRight, Activity } from "lucide-react";
+import Link from "next/link";
+
+import { requireActiveOrganization } from "@/lib/organizations/queries";
+import { getAgentStats, getAgentsNeedingAttention } from "@/lib/agents/queries";
+import { getRecentActivity, getOrgSpendSummary, getRiskEventCount } from "@/lib/activity/queries";
+import { formatCurrency, formatRelativeTime } from "@/lib/utils";
+
+import { PageHeader } from "@/components/dashboard/page-header";
+import { StatCard } from "@/components/dashboard/stat-card";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { AgentStatusBadge, RiskBadge } from "@/components/dashboard/status-badges";
+import { ActivityRow } from "@/components/activity/activity-row";
+import { EmptyState } from "@/components/ui/empty-state";
+
+export const metadata: Metadata = { title: "Overview" };
+
+export default async function OverviewPage() {
+  const { organization } = await requireActiveOrganization();
+
+  const [stats, needsAttention, recentActivity, spendCents, riskEvents] = await Promise.all([
+    getAgentStats(organization.id),
+    getAgentsNeedingAttention(organization.id),
+    getRecentActivity(organization.id, 8),
+    getOrgSpendSummary(organization.id),
+    getRiskEventCount(organization.id),
+  ]);
+
+  return (
+    <div>
+      <PageHeader
+        title="Overview"
+        description={`What's happening across ${organization.name}'s agents right now.`}
+      />
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard label="Agents" value={String(stats.total)} icon={Bot} />
+        <StatCard label="Active" value={String(stats.active)} icon={CheckCircle2} />
+        <StatCard
+          label="Need attention"
+          value={String(stats.needsAttention + stats.paused)}
+          icon={AlertTriangle}
+          tone={stats.needsAttention > 0 ? "warning" : undefined}
+        />
+        <StatCard
+          label="High-risk events (7d)"
+          value={String(riskEvents)}
+          icon={AlertTriangle}
+          tone={riskEvents > 0 ? "danger" : undefined}
+        />
+        <StatCard
+          label="Spend this month"
+          value={formatCurrency(spendCents)}
+          icon={TrendingUp}
+        />
+      </div>
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Agents needing attention</CardTitle>
+            <Link
+              href="/agents?status=NEEDS_ATTENTION"
+              className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              View all
+              <ArrowRight className="size-3" aria-hidden="true" />
+            </Link>
+          </CardHeader>
+          <CardContent className="p-0">
+            {needsAttention.length === 0 ? (
+              <div className="px-5 py-10">
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="Nothing needs attention"
+                  description="All agents are active and behaving normally."
+                />
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {needsAttention.map((agent) => (
+                  <li key={agent.id} className="flex items-center justify-between px-5 py-3">
+                    <Link
+                      href={`/agents/${agent.slug}`}
+                      className="min-w-0 truncate text-sm font-medium text-foreground hover:underline"
+                    >
+                      {agent.name}
+                    </Link>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <RiskBadge level={agent.riskLevel} />
+                      <AgentStatusBadge status={agent.status} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent activity</CardTitle>
+            <Link
+              href="/activity"
+              className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              View all
+              <ArrowRight className="size-3" aria-hidden="true" />
+            </Link>
+          </CardHeader>
+          <CardContent className="p-0">
+            {recentActivity.length === 0 ? (
+              <div className="px-5 py-10">
+                <EmptyState
+                  icon={Activity}
+                  title="No activity yet"
+                  description="Agent actions will appear here as they happen."
+                />
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {recentActivity.map((event) => (
+                  <ActivityRow
+                    key={event.id}
+                    timestamp={event.timestamp}
+                    agentName={event.agent.name}
+                    agentSlug={event.agent.slug}
+                    action={event.action}
+                    resource={event.resource}
+                    status={event.status}
+                  />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {recentActivity[0] && (
+        <p className="mt-4 text-xs text-muted-foreground">
+          Last event {formatRelativeTime(recentActivity[0].timestamp)}
+        </p>
+      )}
+    </div>
+  );
+}
