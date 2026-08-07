@@ -185,10 +185,14 @@ that looks functional but isn't.
 
 ## Known limitations
 
-- No live PostgreSQL instance is provisioned in this environment — schema,
-  client generation, and type-checking were all validated, but
-  migration/seed execution needs a `DATABASE_URL` you provide (see step 2
-  above).
+- This environment's PostgreSQL runs inside a WSL Ubuntu instance
+  (installed during setup) rather than natively on Windows. WSL2 shuts its
+  VM down a few seconds after the last `wsl` session closes, which stops
+  Postgres with it. If `npm run dev` can't reach the database after a
+  reboot or a period of inactivity, run `wsl -d Ubuntu -u root service
+  postgresql start` (or just `wsl` to open a session) to bring it back up
+  before starting the app. For a setup that doesn't need this step, use
+  Docker or a hosted provider instead (see [Local setup](#local-setup)).
 - Billing is not implemented; pricing is presentational only
   (`lib/pricing.ts`).
 - OAuth providers are not wired up; the schema and NextAuth config are ready
