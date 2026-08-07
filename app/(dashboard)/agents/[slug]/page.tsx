@@ -1,12 +1,18 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Pencil, Wrench, ShieldCheck, DollarSign, Activity as ActivityIcon } from "lucide-react";
+import { Pencil, Wrench, ShieldCheck, DollarSign, Plus, Activity as ActivityIcon } from "lucide-react";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { getAgentBySlug } from "@/lib/agents/queries";
 import { getAgentActivity } from "@/lib/activity/queries";
 import { formatCurrency, formatDateTime, formatRelativeTime } from "@/lib/utils";
+import { canManageAgentPermissions } from "@/lib/policies/authorization";
+import {
+  getAgentPermissionSummary,
+  listAgentPermissions,
+  listPoliciesForAgent,
+} from "@/lib/policies/repository";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { AgentTabs } from "@/components/agents/agent-tabs";
@@ -18,6 +24,8 @@ import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PhasePreview } from "@/components/dashboard/phase-preview";
+import { PermissionsTable } from "@/components/policies/permissions-table";
+import { AgentPoliciesList } from "@/components/policies/agent-policies-list";
 
 export const metadata: Metadata = { title: "Agent" };
 
@@ -28,7 +36,7 @@ export default async function AgentDetailPage({
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ tab?: string }>;
 }) {
-  const { organization } = await requireActiveOrganization();
+  const { organization, role } = await requireActiveOrganization();
   const { slug } = await params;
   const { tab: rawTab } = await searchParams;
   const tab = rawTab ?? "overview";
@@ -36,10 +44,17 @@ export default async function AgentDetailPage({
   const agent = await getAgentBySlug(organization.id, slug);
   if (!agent) notFound();
 
+  const canManagePermissions = canManageAgentPermissions(role);
+
   const activity =
     tab === "overview" || tab === "activity"
       ? await getAgentActivity(organization.id, agent.id, tab === "overview" ? 5 : 50)
       : [];
+
+  const permissionSummary =
+    tab === "overview" ? await getAgentPermissionSummary(organization.id, agent.id) : null;
+  const permissions = tab === "permissions" ? await listAgentPermissions(organization.id, agent.id) : [];
+  const agentPolicies = tab === "policies" ? await listPoliciesForAgent(organization.id, agent.id) : [];
 
   return (
     <div>
@@ -105,6 +120,30 @@ export default async function AgentDetailPage({
                   </div>
                 )}
               </div>
+
+              {permissionSummary && (
+                <div className="mt-5 border-t border-border pt-5">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Permissions
+                  </p>
+                  <div className="flex flex-wrap items-center gap-4 text-sm">
+                    <Link href={`/agents/${agent.slug}?tab=permissions`} className="hover:underline">
+                      <span className="font-medium text-success">{permissionSummary.ALLOW}</span>{" "}
+                      <span className="text-muted-foreground">allow</span>
+                    </Link>
+                    <Link href={`/agents/${agent.slug}?tab=permissions`} className="hover:underline">
+                      <span className="font-medium text-warning">
+                        {permissionSummary.REQUIRE_APPROVAL}
+                      </span>{" "}
+                      <span className="text-muted-foreground">require approval</span>
+                    </Link>
+                    <Link href={`/agents/${agent.slug}?tab=permissions`} className="hover:underline">
+                      <span className="font-medium text-danger">{permissionSummary.BLOCK}</span>{" "}
+                      <span className="text-muted-foreground">block</span>
+                    </Link>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -199,12 +238,39 @@ export default async function AgentDetailPage({
       )}
 
       {tab === "permissions" && (
-        <PhasePreview
-          icon={ShieldCheck}
-          title="Agent permissions"
-          description="Define exactly which resources and actions this agent can access. Coming with the Aegis policy engine."
-          phase="Phase 2 — Policy Engine"
-        />
+        <div>
+          {canManagePermissions && (
+            <div className="mb-4 flex justify-end">
+              <ButtonLink href={`/agents/${agent.slug}/permissions/new`} size="sm">
+                <Plus className="size-3.5" aria-hidden="true" />
+                Add permission
+              </ButtonLink>
+            </div>
+          )}
+          {permissions.length === 0 ? (
+            <EmptyState
+              icon={ShieldCheck}
+              title="No permissions configured"
+              description="Unconfigured actions are blocked by default. Add a permission to explicitly allow, require approval, or block a specific action for this agent."
+              action={
+                canManagePermissions && (
+                  <ButtonLink href={`/agents/${agent.slug}/permissions/new`} size="sm">
+                    <Plus className="size-3.5" aria-hidden="true" />
+                    Add permission
+                  </ButtonLink>
+                )
+              }
+            />
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-border bg-surface">
+              <PermissionsTable
+                permissions={permissions}
+                agentSlug={agent.slug}
+                canManage={canManagePermissions}
+              />
+            </div>
+          )}
+        </div>
       )}
 
       {tab === "costs" && (
@@ -232,12 +298,25 @@ export default async function AgentDetailPage({
       )}
 
       {tab === "policies" && (
-        <PhasePreview
-          icon={ShieldCheck}
-          title="Policies"
-          description="Guardrails that automatically allow, block, or require approval for this agent's actions."
-          phase="Phase 2 — Policy Engine"
-        />
+        <div>
+          {agentPolicies.length === 0 ? (
+            <EmptyState
+              icon={ShieldCheck}
+              title="No policies apply to this agent"
+              description="Policies scoped to this agent, or to any agent, will appear here."
+              action={
+                <ButtonLink href="/policies/new" size="sm">
+                  <Plus className="size-3.5" aria-hidden="true" />
+                  Create policy
+                </ButtonLink>
+              }
+            />
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-border bg-surface">
+              <AgentPoliciesList policies={agentPolicies} agentName={agent.name} />
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

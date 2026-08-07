@@ -24,7 +24,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Agents", href: "/agents", icon: Bot, status: "active" },
   { label: "Activity", href: "/activity", icon: Activity, status: "active" },
   { label: "Approvals", href: "/approvals", icon: CheckCircle2, status: "soon" },
-  { label: "Policies", href: "/policies", icon: ShieldCheck, status: "soon" },
+  { label: "Policies", href: "/policies", icon: ShieldCheck, status: "active" },
   { label: "Security", href: "/security", icon: ShieldAlert, status: "soon" },
   { label: "Costs", href: "/costs", icon: DollarSign, status: "soon" },
   { label: "Audit", href: "/audit", icon: ClipboardList, status: "soon" },

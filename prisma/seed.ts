@@ -1,6 +1,23 @@
-import { PrismaClient, type ActivityStatus, type ActivityType, type RiskLevel } from "@prisma/client";
+import {
+  PrismaClient,
+  type ActivityStatus,
+  type ActivityType,
+  type ConditionOperator,
+  type Environment,
+  type PolicyDecision,
+  type RiskLevel,
+} from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
+
+// The real policy engine (lib/policies/matcher.ts, resolver.ts) is reused
+// below to generate evaluation history — these seeded decisions are
+// computed by the same logic that runs in production, not hand-faked.
+// evaluate.ts and repository.ts are skipped because they're guarded with
+// `server-only`, which this standalone script isn't running inside.
+import { filterApplicablePolicies, resolveBestPermission } from "../lib/policies/matcher";
+import { resolveDecision } from "../lib/policies/resolver";
+import type { PolicyEvaluationInput } from "../lib/policies/types";
 
 const prisma = new PrismaClient();
 
@@ -54,6 +71,13 @@ type ActionTemplate = {
   metadata?: () => Record<string, string | number>;
 };
 
+type PermissionSeed = {
+  action: string;
+  resource?: string;
+  decision: PolicyDecision;
+  description?: string;
+};
+
 type AgentSeed = {
   name: string;
   owner: string;
@@ -67,6 +91,7 @@ type AgentSeed = {
   description: string;
   tools: { name: string; category: string }[];
   actions: ActionTemplate[];
+  permissions: PermissionSeed[];
   lastActiveMinutesAgo: number;
   eventCount: number;
 };
@@ -86,6 +111,13 @@ const AGENTS: AgentSeed[] = [
     tools: [
       { name: "CRM", category: "Data" },
       { name: "Email", category: "Communication" },
+    ],
+    permissions: [
+      { action: "crm.contact.read", decision: "ALLOW" },
+      { action: "crm.contact.update", decision: "ALLOW" },
+      { action: "email.generate", decision: "ALLOW" },
+      { action: "email.send", decision: "REQUIRE_APPROVAL", description: "Outbound email needs a human glance first." },
+      { action: "crm.export", decision: "BLOCK", description: "Bulk customer export is never automatic." },
     ],
     lastActiveMinutesAgo: 2,
     eventCount: 38,
@@ -149,6 +181,12 @@ const AGENTS: AgentSeed[] = [
     sdkVersion: "0.4.2",
     description: "Triages inbound support tickets and drafts customer replies.",
     tools: [{ name: "Zendesk", category: "Communication" }],
+    permissions: [
+      { action: "ticket.read", decision: "ALLOW" },
+      { action: "ticket.reply", decision: "ALLOW" },
+      { action: "ticket.escalate", decision: "ALLOW" },
+      { action: "customer.export", decision: "BLOCK" },
+    ],
     lastActiveMinutesAgo: 0,
     eventCount: 44,
     actions: [
@@ -211,6 +249,13 @@ const AGENTS: AgentSeed[] = [
     sdkVersion: "0.3.9",
     description: "Reviews billing anomalies and processes customer refund requests.",
     tools: [{ name: "Billing", category: "Financial" }],
+    permissions: [
+      { action: "invoice.read", decision: "ALLOW" },
+      { action: "invoice.create", decision: "ALLOW" },
+      { action: "refund.issue", decision: "REQUIRE_APPROVAL", description: "Refunds always get a second look." },
+      { action: "invoice.delete", decision: "BLOCK" },
+      { action: "bank_account.change", decision: "BLOCK", description: "Never automatable — high fraud risk." },
+    ],
     lastActiveMinutesAgo: 4,
     eventCount: 30,
     actions: [
@@ -281,6 +326,11 @@ const AGENTS: AgentSeed[] = [
       { name: "Web", category: "Data" },
       { name: "Drive", category: "Data" },
     ],
+    permissions: [
+      { action: "web.search", decision: "ALLOW" },
+      { action: "document.read", decision: "ALLOW" },
+      { action: "document.summarize", decision: "ALLOW" },
+    ],
     lastActiveMinutesAgo: 60,
     eventCount: 26,
     actions: [
@@ -336,6 +386,11 @@ const AGENTS: AgentSeed[] = [
     tools: [
       { name: "GitHub", category: "Development" },
       { name: "CI", category: "Development" },
+    ],
+    permissions: [
+      { action: "repo.test.execute", decision: "ALLOW" },
+      { action: "repo.pull_request.open", decision: "ALLOW" },
+      { action: "repo.pull_request.merge", decision: "REQUIRE_APPROVAL" },
     ],
     lastActiveMinutesAgo: 6,
     eventCount: 42,
@@ -402,6 +457,11 @@ const AGENTS: AgentSeed[] = [
       { name: "Kubernetes", category: "Deployment" },
       { name: "CI/CD", category: "Deployment" },
     ],
+    permissions: [
+      { action: "deployment.preview", decision: "ALLOW" },
+      { action: "deployment.execute", decision: "REQUIRE_APPROVAL" },
+      { action: "production.secret.read", decision: "BLOCK" },
+    ],
     lastActiveMinutesAgo: 5,
     eventCount: 24,
     actions: [
@@ -454,6 +514,154 @@ const AGENTS: AgentSeed[] = [
   },
 ];
 
+type PolicyConditionSeed = { field: string; operator: ConditionOperator; value: unknown };
+
+type PolicySeed = {
+  name: string;
+  description: string;
+  decision: PolicyDecision;
+  priority: number;
+  agentName?: string; // undefined = applies to any agent
+  action: string;
+  environment?: Environment;
+  conditions?: PolicyConditionSeed[];
+};
+
+const POLICIES: PolicySeed[] = [
+  {
+    name: "Refunds above $500",
+    description: "Large refunds always need a human to sign off before they go out.",
+    decision: "REQUIRE_APPROVAL",
+    priority: 100,
+    action: "refund.issue",
+    conditions: [{ field: "context.amount", operator: "GREATER_THAN", value: 500 }],
+  },
+  {
+    name: "Block customer deletion",
+    description: "Deleting a customer record is never something an agent should do unattended.",
+    decision: "BLOCK",
+    priority: 200,
+    action: "customer.delete",
+  },
+  {
+    name: "Production deployments",
+    description: "Any production deployment needs sign-off, regardless of which agent triggers it.",
+    decision: "REQUIRE_APPROVAL",
+    priority: 150,
+    action: "deployment.execute",
+    environment: "PRODUCTION",
+  },
+  {
+    name: "Block customer export",
+    description: "Bulk customer data export is blocked company-wide.",
+    decision: "BLOCK",
+    priority: 200,
+    action: "crm.export",
+  },
+];
+
+/**
+ * A handful of realistic evaluation scenarios, run through the real policy
+ * engine (matcher + resolver — see the imports above) so the seeded
+ * evaluation history is exactly as trustworthy as production output, not
+ * hand-faked. See docs/policy-engine.md section "Test scenarios".
+ */
+function buildScenarios(
+  organizationId: string,
+  agentIdByName: Map<string, string>
+): PolicyEvaluationInput[] {
+  const salesId = agentIdByName.get("Sales Agent")!;
+  const financeId = agentIdByName.get("Finance Agent")!;
+  const deploymentId = agentIdByName.get("Deployment Agent")!;
+  const codingId = agentIdByName.get("Coding Agent")!;
+  const supportId = agentIdByName.get("Support Agent")!;
+  const researchId = agentIdByName.get("Research Agent")!;
+
+  const scenarios: Omit<PolicyEvaluationInput, "organizationId">[] = [
+    { agentId: salesId, action: "crm.contact.read", resource: "contact:acme-inc" },
+    { agentId: salesId, action: "crm.export" },
+    { agentId: salesId, action: "customer.delete" }, // no permission configured — demonstrates policy-only BLOCK
+    { agentId: financeId, action: "refund.issue", context: { amount: 250, customer: "Globex Corp" } },
+    { agentId: financeId, action: "refund.issue", context: { amount: 1250, customer: "Acme Inc." } },
+    { agentId: financeId, action: "refund.issue", context: { amount: 4200, customer: "Stark Industries" } },
+    { agentId: financeId, action: "bank_account.change" },
+    { agentId: financeId, action: "invoice.read", resource: "invoice:inv_4821" },
+    { agentId: deploymentId, action: "deployment.preview" },
+    { agentId: deploymentId, action: "deployment.execute", environment: "PRODUCTION" },
+    { agentId: deploymentId, action: "production.secret.read" },
+    { agentId: codingId, action: "repo.test.execute" },
+    { agentId: codingId, action: "repo.pull_request.merge", resource: "pr:#412" },
+    { agentId: supportId, action: "ticket.read" },
+    { agentId: supportId, action: "customer.export" },
+    { agentId: researchId, action: "web.search" },
+    { agentId: researchId, action: "web.execute_script" }, // unconfigured anywhere — demonstrates default BLOCK
+  ];
+
+  return scenarios.map((scenario) => ({ ...scenario, organizationId }));
+}
+
+/**
+ * Mirrors lib/policies/evaluate.ts's orchestration (permission resolution ->
+ * policy matching -> decision resolution -> persistence) using only the
+ * pure, non-`server-only` pieces of the engine, since this script runs
+ * outside Next.js's server boundary.
+ */
+async function runSeedEvaluation(organizationId: string, input: PolicyEvaluationInput) {
+  const agent = await prisma.agent.findUniqueOrThrow({ where: { id: input.agentId } });
+
+  const [permissions, candidatePolicies] = await Promise.all([
+    prisma.agentPermission.findMany({ where: { organizationId, agentId: input.agentId } }),
+    prisma.policy.findMany({
+      where: { organizationId, status: "ACTIVE", OR: [{ agentId: input.agentId }, { agentId: null }] },
+      include: { conditions: true },
+    }),
+  ]);
+
+  const permission = resolveBestPermission(permissions, input);
+  const matchedPolicies = filterApplicablePolicies(candidatePolicies, input);
+  const resolved = resolveDecision(permission, matchedPolicies, input);
+  const traceId = randomUUID();
+
+  await prisma.$transaction(async (tx) => {
+    const activityEvent = await tx.activityEvent.create({
+      data: {
+        organizationId,
+        agentId: input.agentId,
+        eventType: "ACTION",
+        action: input.action,
+        resource: input.resource,
+        status: resolved.decision === "ALLOW" ? "ALLOWED" : resolved.decision === "BLOCK" ? "BLOCKED" : "APPROVAL_REQUIRED",
+        riskLevel: input.riskLevel ?? agent.riskLevel,
+        traceId,
+        metadata: input.context && Object.keys(input.context).length > 0 ? input.context : undefined,
+      },
+    });
+
+    await tx.policyEvaluation.create({
+      data: {
+        organizationId,
+        agentId: input.agentId,
+        action: input.action,
+        resource: input.resource,
+        environment: input.environment,
+        tool: input.tool,
+        riskLevel: input.riskLevel,
+        context: input.context && Object.keys(input.context).length > 0 ? input.context : undefined,
+        decision: resolved.decision,
+        reason: resolved.reason,
+        permissionId: resolved.matchedPermissionSnapshot?.id,
+        permissionSnapshot: resolved.matchedPermissionSnapshot,
+        matchedPolicyIds: resolved.matchedPolicySnapshots.map((p) => p.id),
+        matchedPolicySnapshots: resolved.matchedPolicySnapshots,
+        traceId,
+        activityEventId: activityEvent.id,
+      },
+    });
+  });
+
+  return resolved.decision;
+}
+
 async function main() {
   console.log("Seeding Aegis demo data…");
 
@@ -486,9 +694,14 @@ async function main() {
   });
 
   // Clear previously seeded domain data for this org so the script is re-runnable.
+  await prisma.policyEvaluation.deleteMany({ where: { organizationId: organization.id } });
+  await prisma.policy.deleteMany({ where: { organizationId: organization.id } });
+  await prisma.agentPermission.deleteMany({ where: { organizationId: organization.id } });
   await prisma.activityEvent.deleteMany({ where: { organizationId: organization.id } });
   await prisma.agentTool.deleteMany({ where: { agent: { organizationId: organization.id } } });
   await prisma.agent.deleteMany({ where: { organizationId: organization.id } });
+
+  const agentIdByName = new Map<string, string>();
 
   for (const seed of AGENTS) {
     const agent = await prisma.agent.create({
@@ -509,6 +722,21 @@ async function main() {
         tools: { create: seed.tools },
       },
     });
+
+    agentIdByName.set(seed.name, agent.id);
+
+    if (seed.permissions.length > 0) {
+      await prisma.agentPermission.createMany({
+        data: seed.permissions.map((p) => ({
+          organizationId: organization.id,
+          agentId: agent.id,
+          action: p.action,
+          resource: p.resource ?? "",
+          decision: p.decision,
+          description: p.description,
+        })),
+      });
+    }
 
     const events = Array.from({ length: seed.eventCount }, () => {
       const template = pick(seed.actions);
@@ -539,6 +767,37 @@ async function main() {
 
     console.log(`  ${seed.name}: created with ${events.length} activity events`);
   }
+
+  for (const policySeed of POLICIES) {
+    await prisma.policy.create({
+      data: {
+        organizationId: organization.id,
+        name: policySeed.name,
+        description: policySeed.description,
+        decision: policySeed.decision,
+        priority: policySeed.priority,
+        agentId: policySeed.agentName ? agentIdByName.get(policySeed.agentName) : null,
+        action: policySeed.action,
+        environment: policySeed.environment,
+        conditions: {
+          create: (policySeed.conditions ?? []).map((c) => ({
+            field: c.field,
+            operator: c.operator,
+            value: c.value as never,
+          })),
+        },
+      },
+    });
+  }
+  console.log(`  Policies: created ${POLICIES.length} policies`);
+
+  const scenarios = buildScenarios(organization.id, agentIdByName);
+  let evaluationCount = 0;
+  for (const scenario of scenarios) {
+    await runSeedEvaluation(organization.id, scenario);
+    evaluationCount += 1;
+  }
+  console.log(`  Evaluations: ran ${evaluationCount} scenarios through the real policy engine`);
 
   console.log("\nSeed complete.");
   console.log("  Organization: Northstar Labs (northstar-labs)");

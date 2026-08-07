@@ -6,10 +6,12 @@ Aegis gives companies running AI agents in production a single place to see what
 those agents do, understand what they can access, and stay in control as the
 AI workforce grows.
 
-This repository is the **Phase 1 foundation**: marketing site, authentication,
-multi-tenant organizations, and the core Agents / Activity product surface.
-Policies, approvals, cost intelligence, and security monitoring are designed
-for architecturally, but not yet implemented — see [Roadmap](#roadmap).
+This repository covers **Phase 1** (marketing site, authentication,
+multi-tenant organizations, the Agents / Activity product surface) and
+**Phase 2** (the policy engine: agent permissions, conditional policies,
+the policy tester, and evaluation history). Approvals, an immutable audit
+trail, cost intelligence, and security monitoring are designed for
+architecturally, but not yet implemented — see [Roadmap](#roadmap).
 
 ## Architecture
 
@@ -20,6 +22,7 @@ for architecturally, but not yet implemented — see [Roadmap](#roadmap).
 - **Auth**: Auth.js (NextAuth v5), credentials provider with bcrypt, JWT sessions,
   Prisma adapter (ready for OAuth providers later)
 - **Validation**: Zod, enforced server-side on every mutation
+- **Testing**: Vitest for the policy engine's decision logic
 
 ### Project layout
 
@@ -27,7 +30,7 @@ for architecturally, but not yet implemented — see [Roadmap](#roadmap).
 app/
   (marketing)/        Public site: home, pricing
   (auth)/              Sign in, sign up
-  (dashboard)/          Authenticated app: overview, agents, activity
+  (dashboard)/          Authenticated app: overview, agents, activity, policies
   onboarding/            Create-organization flow
   api/auth/               NextAuth route handler
 
@@ -35,18 +38,34 @@ components/
   ui/                  Design system primitives (Button, Card, Table, ...)
   marketing/            Landing page sections
   dashboard/           Sidebar, topbar, shared dashboard UI
-  agents/, activity/, auth/, onboarding/  Feature-specific components
+  agents/, activity/, auth/, onboarding/, policies/  Feature-specific components
 
 lib/
   auth/                NextAuth config, session helpers, password hashing
   organizations/        Multi-tenancy queries + the central authorization guard
   agents/, activity/    Domain queries and Server Actions
+  policies/            The policy engine — see docs/policy-engine.md
+    types.ts             Shared types (PolicyEvaluationInput/Result, ...)
+    conditions.ts        Safe field resolution + operator evaluation, no eval
+    matcher.ts            Scope/wildcard matching, permission resolution
+    resolver.ts           Decision precedence + reason generation
+    evaluate.ts            evaluateAgentAction() — the engine's one entry point
+    repository.ts          Prisma access, always organization-scoped
+    authorization.ts       Role checks (canManagePolicies, ...)
+    describe.ts            Natural-language policy summaries
+    safe-context.ts         Sanitizes untrusted JSON (size/depth/proto-pollution)
+    actions.ts              Server Actions wiring validation + auth + repository
+    __tests__/               Vitest suite for the pure decision logic
   validation/           Zod schemas, shared across forms and Server Actions
   db.ts, utils.ts, pricing.ts, dashboard-nav.ts
 
 prisma/
   schema.prisma        Database schema
-  seed.ts              Demo data generator (Northstar Labs)
+  seed.ts              Demo data generator (Northstar Labs) — runs real
+                       evaluations through the engine, not hand-faked ones
+
+docs/
+  policy-engine.md     Decision model, precedence, security assumptions
 ```
 
 ### Multi-tenancy & security
@@ -74,6 +93,40 @@ filtered fields (`status`, `riskLevel`, `eventType`, `traceId`, `agentId`,
 future policy/audit features can query them directly. Free-form detail lives
 in a `metadata` JSON column. `traceId` / `parentEventId` already model the
 event graph a future tracing view would need.
+
+### Policy engine
+
+Two layers feed every decision: **agent permissions** (the baseline — "what
+is this agent generally allowed to do?") and **policies** (conditional rules
+layered on top — "under these conditions, what should Aegis do?").
+
+```
+Agent action
+    |
+    v
+Baseline permission  (exact/wildcard action + resource match)
+    |
+    v
+Matching policies     (scope match + all conditions AND'd together)
+    |
+    v
+Decision resolver     BLOCK beats REQUIRE_APPROVAL beats ALLOW,
+    |                  regardless of priority
+    v
+ALLOW / REQUIRE_APPROVAL / BLOCK  (+ a deterministic, human-readable reason)
+```
+
+An action with no matching permission and no matching policy resolves to
+`BLOCK` — the engine fails closed by default. Every evaluation is persisted
+to `PolicyEvaluation` (with a linked `ActivityEvent`) so decisions are
+auditable and explainable after the fact, not just in the moment. Full
+design details, including why evaluations never hold a foreign key back to
+the policy that produced them, live in
+**[`docs/policy-engine.md`](docs/policy-engine.md)**.
+
+Phase 3 will add the actual approval workflow — a human reviewing and
+resolving `REQUIRE_APPROVAL` evaluations. Phase 2 evaluates and records that
+decision; it doesn't yet route it to anyone.
 
 ## Local setup
 
@@ -117,8 +170,10 @@ npm run db:seed
 ```
 
 This creates the **Northstar Labs** organization with six demo agents (Sales,
-Support, Finance, Research, Coding, Deployment) and realistic structured
-activity events. Sign in with:
+Support, Finance, Research, Coding, Deployment), realistic structured
+activity events, baseline permissions per agent, four org-wide policies, and
+a policy evaluation history generated by actually running those scenarios
+through the real engine. Sign in with:
 
 ```
 demo@northstarlabs.io / aegis-demo-2026
@@ -144,6 +199,7 @@ Visit `http://localhost:3000`.
 | `npm run db:migrate`  | Create/apply a tracked migration          |
 | `npm run db:seed`    | Seed demo data                            |
 | `npm run db:studio`  | Open Prisma Studio                        |
+| `npm test`           | Run the policy engine's Vitest suite      |
 
 ## Environment variables
 
@@ -153,7 +209,7 @@ Visit `http://localhost:3000`.
 | `AUTH_SECRET`     | Yes      | Signs session JWTs — must be a random secret |
 | `AUTH_URL`        | Prod only | Public base URL of the deployment           |
 
-## Phase 1 capabilities
+## Phase 1 + 2 capabilities
 
 - Marketing site (hero, problem, control plane, activity/policies/approvals/
   security/cost previews, pricing)
@@ -162,24 +218,33 @@ Visit `http://localhost:3000`.
 - Agents: list with search/filters/pagination, create, edit, pause/resume,
   detail view with tabs
 - Activity: structured, filterable, paginated event log with a detail view
+- **Agent permissions**: baseline `ALLOW`/`REQUIRE_APPROVAL`/`BLOCK` rules
+  per agent+action(+resource), managed from the Agent Detail Permissions tab
+- **Policies**: conditional org-wide or per-agent rules with a scope +
+  condition builder, enable/disable, priority, and a live natural-language
+  preview
+- **Policy tester**: evaluate any action through the real engine and see the
+  full decision trace before wiring anything up
+- **Evaluation history**: every decision the engine has made, filterable,
+  with a detail view showing the matched permission/policies and full
+  context
 - Fully responsive, accessible (keyboard nav, focus states, semantic HTML),
   with loading/empty/error states throughout
 
-Policies, Approvals, Security monitoring, and Cost intelligence are marketed
-on the landing page as **previews** with an explicit "coming next" label —
-their UI is not present inside the authenticated app, so there is nothing
-that looks functional but isn't.
+Approvals, Security monitoring, and Cost intelligence are marketed on the
+landing page as **previews** with an explicit "coming next" label — their UI
+is not present inside the authenticated app, so there is nothing that looks
+functional but isn't.
 
 ## Roadmap
 
-- **Phase 2 — Policy Engine & Agent Permissions**: turn the `ALLOWED` /
-  `BLOCKED` / `APPROVAL_REQUIRED` states already in `ActivityEvent` into
-  something a policy actually decides, plus per-agent permission scopes.
-- **Phase 3 — Approvals & Audit**: human-in-the-loop approval workflow for
-  `APPROVAL_REQUIRED` events, and an immutable audit trail.
+- **Phase 3 — Approvals & Audit**: human-in-the-loop approval workflow that
+  acts on `REQUIRE_APPROVAL` evaluations (the engine already produces and
+  records them — Phase 3 is routing and resolving), plus an immutable audit
+  trail for permission/policy CRUD.
 - **Phase 4 — API keys & Ingestion**: hashed API keys, an ingestion API, and
   the `@aegis/agent-sdk` package so real agents can report activity and ask
-  Aegis for an authorization decision.
+  Aegis for an authorization decision via `evaluateAgentAction`.
 - **Phase 5 — Cost Intelligence & Security Monitoring**: anomaly detection,
   per-model/per-task cost attribution, advanced RBAC, integrations.
 

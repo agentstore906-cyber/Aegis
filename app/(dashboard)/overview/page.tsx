@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { Bot, CheckCircle2, AlertTriangle, TrendingUp, ArrowRight, Activity } from "lucide-react";
+import { Bot, CheckCircle2, AlertTriangle, TrendingUp, ArrowRight, Activity, ShieldBan } from "lucide-react";
 import Link from "next/link";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { getAgentStats, getAgentsNeedingAttention } from "@/lib/agents/queries";
 import { getRecentActivity, getOrgSpendSummary, getRiskEventCount } from "@/lib/activity/queries";
-import { formatCurrency, formatRelativeTime } from "@/lib/utils";
+import { getPolicyDashboardStats } from "@/lib/policies/repository";
+import { formatCurrency, formatDateTime, formatRelativeTime } from "@/lib/utils";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
@@ -19,12 +20,13 @@ export const metadata: Metadata = { title: "Overview" };
 export default async function OverviewPage() {
   const { organization } = await requireActiveOrganization();
 
-  const [stats, needsAttention, recentActivity, spendCents, riskEvents] = await Promise.all([
+  const [stats, needsAttention, recentActivity, spendCents, riskEvents, policyStats] = await Promise.all([
     getAgentStats(organization.id),
     getAgentsNeedingAttention(organization.id),
     getRecentActivity(organization.id, 8),
     getOrgSpendSummary(organization.id),
     getRiskEventCount(organization.id),
+    getPolicyDashboardStats(organization.id),
   ]);
 
   return (
@@ -136,6 +138,71 @@ export default async function OverviewPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>Control decisions — last 24h</CardTitle>
+          <Link
+            href="/policies/evaluations"
+            className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            View all
+            <ArrowRight className="size-3" aria-hidden="true" />
+          </Link>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-4 text-center sm:text-left">
+            <div>
+              <p className="text-2xl font-semibold tabular-nums text-success">{policyStats.last24h.ALLOW}</p>
+              <p className="text-xs text-muted-foreground">Allowed</p>
+            </div>
+            <div>
+              <p className="text-2xl font-semibold tabular-nums text-warning">
+                {policyStats.last24h.REQUIRE_APPROVAL}
+              </p>
+              <p className="text-xs text-muted-foreground">Approval required</p>
+            </div>
+            <div>
+              <p className="text-2xl font-semibold tabular-nums text-danger">{policyStats.last24h.BLOCK}</p>
+              <p className="text-xs text-muted-foreground">Blocked</p>
+            </div>
+          </div>
+
+          <div className="mt-5 border-t border-border pt-5">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Recent blocked actions
+            </p>
+            {policyStats.recentBlocked.length === 0 ? (
+              <EmptyState
+                icon={ShieldBan}
+                title="No blocked actions"
+                description="Blocked policy evaluations will appear here."
+              />
+            ) : (
+              <ul className="divide-y divide-border">
+                {policyStats.recentBlocked.map((evaluation) => (
+                  <li key={evaluation.id} className="flex items-center justify-between py-2.5 text-sm">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/policies/evaluations/${evaluation.id}`}
+                        className="font-medium text-foreground hover:underline"
+                      >
+                        {evaluation.agent.name}
+                      </Link>
+                      <span className="ml-2 font-mono text-xs text-muted-foreground">
+                        {evaluation.action}
+                      </span>
+                    </div>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {formatDateTime(evaluation.createdAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {recentActivity[0] && (
         <p className="mt-4 text-xs text-muted-foreground">

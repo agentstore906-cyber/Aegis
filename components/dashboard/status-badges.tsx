@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import type { ActivityStatus, AgentStatus, RiskLevel } from "@prisma/client";
+import type { ActivityStatus, AgentStatus, PolicyDecision, PolicyStatus, RiskLevel } from "@prisma/client";
 
 export function AgentStatusBadge({ status }: { status: AgentStatus }) {
   switch (status) {
@@ -40,6 +40,42 @@ export function RiskBadge({ level }: { level: RiskLevel }) {
       return <Badge tone="warning">High</Badge>;
     case "CRITICAL":
       return <Badge tone="danger">Critical</Badge>;
+  }
+}
+
+export function DecisionBadge({ decision }: { decision: PolicyDecision }) {
+  switch (decision) {
+    case "ALLOW":
+      return (
+        <Badge tone="success" dot>
+          Allow
+        </Badge>
+      );
+    case "REQUIRE_APPROVAL":
+      return (
+        <Badge tone="warning" dot>
+          Require approval
+        </Badge>
+      );
+    case "BLOCK":
+      return (
+        <Badge tone="danger" dot>
+          Block
+        </Badge>
+      );
+  }
+}
+
+export function PolicyStatusBadge({ status }: { status: PolicyStatus }) {
+  switch (status) {
+    case "ACTIVE":
+      return (
+        <Badge tone="success" dot>
+          Active
+        </Badge>
+      );
+    case "DISABLED":
+      return <Badge tone="neutral">Disabled</Badge>;
   }
 }
 

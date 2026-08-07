@@ -36,6 +36,7 @@ model User {
   accounts Account[]
   sessions Session[]
   memberships OrganizationMember[]
+  createdPolicies Policy[]
 
   @@map("users")
 }
@@ -95,9 +96,12 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members        OrganizationMember[]
-  agents         Agent[]
-  activityEvents ActivityEvent[]
+  members          OrganizationMember[]
+  agents           Agent[]
+  activityEvents   ActivityEvent[]
+  agentPermissions AgentPermission[]
+  policies         Policy[]
+  policyEvaluations PolicyEvaluation[]
 
   @@map("organizations")
 }
@@ -172,9 +176,12 @@ model Agent {
   updatedAt    DateTime  @updatedAt
   lastActiveAt DateTime?
 
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  tools          AgentTool[]
-  activityEvents ActivityEvent[]
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tools             AgentTool[]
+  activityEvents    ActivityEvent[]
+  permissions       AgentPermission[]
+  policies          Policy[]
+  policyEvaluations PolicyEvaluation[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, status])
@@ -246,8 +253,9 @@ model ActivityEvent {
   errorMessage String? @db.Text
   metadata     Json?
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent            Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  policyEvaluation PolicyEvaluation?
 
   @@index([organizationId, timestamp])
   @@index([agentId, timestamp])
@@ -255,4 +263,164 @@ model ActivityEvent {
   @@index([organizationId, riskLevel])
   @@index([traceId])
   @@map("activity_events")
+}
+
+// ---------------------------------------------------------------------------
+// Policy engine — Phase 2. Two layers feed every decision:
+//
+//   AgentPermission   the baseline capability of a specific agent
+//                     ("what is this agent generally allowed to do?")
+//
+//   Policy            conditional rules layered on top of the baseline
+//                     ("under these conditions, what should Aegis do?")
+//
+// Every evaluation resolves to exactly one of ALLOW / REQUIRE_APPROVAL /
+// BLOCK using a fail-closed precedence: BLOCK beats REQUIRE_APPROVAL beats
+// ALLOW, and an action with no matching permission or policy is BLOCKed by
+// default. See docs/policy-engine.md for the full evaluation algorithm.
+//
+// PolicyEvaluation intentionally holds no foreign key to Policy or
+// AgentPermission — only their IDs plus a point-in-time snapshot. A policy
+// or permission can be edited or deleted later without corrupting the
+// historical record of why a past action was allowed, blocked, or escalated.
+// ---------------------------------------------------------------------------
+
+enum PolicyDecision {
+  ALLOW
+  REQUIRE_APPROVAL
+  BLOCK
+}
+
+enum PolicyStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ConditionOperator {
+  EQUALS
+  NOT_EQUALS
+  GREATER_THAN
+  GREATER_THAN_OR_EQUAL
+  LESS_THAN
+  LESS_THAN_OR_EQUAL
+  IN
+  NOT_IN
+  EXISTS
+}
+
+// Baseline capability of one agent for one action (+ optional resource).
+// resource defaults to "" to mean "any resource" — kept non-null so the
+// uniqueness constraint below actually enforces "no duplicate baseline
+// rule for the same scope" (Postgres treats NULL as distinct from NULL).
+model AgentPermission {
+  id             String @id @default(cuid())
+  organizationId String
+  agentId        String
+
+  action      String // e.g. "refund.issue", "crm.contact.read", "crm.*"
+  resource    String         @default("") // "" = any resource
+  decision    PolicyDecision
+  description String?        @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, action, resource])
+  @@index([organizationId, agentId])
+  @@map("agent_permissions")
+}
+
+// A conditional rule. Matches on structured scope fields first (fast,
+// indexable) then, if all conditions also match, applies `decision`.
+model Policy {
+  id             String @id @default(cuid())
+  organizationId String
+
+  name        String
+  description String?      @db.Text
+  status      PolicyStatus @default(ACTIVE)
+  priority    Int          @default(100) // higher = considered more specific when explaining ties
+  decision    PolicyDecision
+
+  // Scope — all optional except action; unset fields mean "matches any".
+  agentId     String? // null = applies to any agent in the org
+  action      String // exact action, or a "prefix.*" wildcard
+  resource    String?
+  environment Environment?
+  tool        String?
+  riskLevel   RiskLevel?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent?            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  createdBy    User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  conditions   PolicyCondition[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, agentId])
+  @@map("policies")
+}
+
+// A single `field <operator> value` condition. All conditions on a policy
+// are combined with AND. Field paths are resolved against a fixed
+// whitelist (never evaluated as code) — see lib/policies/conditions.ts.
+model PolicyCondition {
+  id       String             @id @default(cuid())
+  policyId String
+  field    String // e.g. "context.amount", "environment", "riskLevel"
+  operator ConditionOperator
+  value    Json // string | number | boolean | array of those
+
+  createdAt DateTime @default(now())
+
+  policy Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
+  @@map("policy_conditions")
+}
+
+// A persisted record of one evaluateAgentAction() call. This is the audit
+// trail for the policy engine — see the note above the enums for why it
+// deliberately avoids hard foreign keys into Policy/AgentPermission.
+model PolicyEvaluation {
+  id             String @id @default(cuid())
+  organizationId String
+  agentId        String
+
+  action      String
+  resource    String?
+  environment Environment?
+  tool        String?
+  riskLevel   RiskLevel?
+  context     Json?
+
+  decision PolicyDecision
+  reason   String @db.Text
+
+  permissionId       String?
+  permissionSnapshot Json?
+
+  matchedPolicyIds       String[]
+  matchedPolicySnapshots Json?
+
+  traceId         String?
+  activityEventId String? @unique
+
+  createdAt DateTime @default(now())
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent         Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  activityEvent ActivityEvent? @relation(fields: [activityEventId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([agentId, createdAt])
+  @@index([organizationId, decision])
+  @@index([traceId])
+  @@map("policy_evaluations")
 }
