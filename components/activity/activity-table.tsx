@@ -36,7 +36,7 @@ export function ActivityTable({ events }: { events: EventRow[] }) {
             <Td>
               <Link
                 href={`/agents/${event.agent.slug}`}
-                className="font-medium text-foreground hover:underline"
+                className="focus-ring rounded-sm font-medium text-foreground hover:underline"
               >
                 {event.agent.name}
               </Link>

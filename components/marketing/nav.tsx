@@ -2,10 +2,11 @@ import Link from "next/link";
 import { Logo } from "@/components/ui/logo";
 import { ButtonLink } from "@/components/ui/button";
 import { MobileNav } from "@/components/marketing/mobile-nav";
+import { TrackedButtonLink } from "@/components/analytics/tracked-button-link";
 
 const LINKS = [
-  { href: "/#product", label: "Product" },
-  { href: "/#security", label: "Security" },
+  { href: "/#preview", label: "Product" },
+  { href: "/#solution", label: "Solutions" },
   { href: "/#developers", label: "Developers" },
   { href: "/pricing", label: "Pricing" },
 ];
@@ -32,11 +33,20 @@ export function MarketingNav() {
 
         <div className="hidden items-center gap-3 md:flex">
           <ButtonLink href="/sign-in" variant="ghost" size="sm">
-            Sign in
+            Sign In
           </ButtonLink>
-          <ButtonLink href="/sign-up" variant="primary" size="sm">
-            Get started
+          <ButtonLink href="/contact" variant="secondary" size="sm">
+            Book a Demo
           </ButtonLink>
+          <TrackedButtonLink
+            href="/sign-up"
+            variant="primary"
+            size="sm"
+            event="landing_cta_clicked"
+            eventProps={{ source: "nav" }}
+          >
+            Start Free
+          </TrackedButtonLink>
         </div>
 
         <MobileNav links={LINKS} />

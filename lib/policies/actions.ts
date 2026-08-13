@@ -15,6 +15,9 @@ import * as repo from "@/lib/policies/repository";
 import { DuplicatePermissionError } from "@/lib/policies/repository";
 import { evaluateAgentAction } from "@/lib/policies/evaluate";
 import type { PolicyEvaluationResult } from "@/lib/policies/types";
+import { recordAuditEvent } from "@/lib/audit/service";
+import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
+import { trackEvent } from "@/lib/analytics/track";
 
 function emptyToUndefined(v: string | undefined): string | undefined {
   return v === "" || v === undefined ? undefined : v;
@@ -39,7 +42,7 @@ export async function createAgentPermissionAction(
   _prevState: PermissionFormState,
   formData: FormData
 ): Promise<PermissionFormState> {
-  const { organization, role } = await requireActiveOrganization();
+  const { organization, user, role } = await requireActiveOrganization();
   if (!canManageAgentPermissions(role)) {
     return { error: "You don't have permission to manage agent permissions." };
   }
@@ -57,11 +60,29 @@ export async function createAgentPermissionAction(
   const agent = await resolveAgentForOrg(organization.id, agentSlug);
 
   try {
-    await repo.createAgentPermission(organization.id, agent.id, {
-      action: parsed.data.action,
-      resource: parsed.data.resource || "",
-      decision: parsed.data.decision,
-      description: parsed.data.description || null,
+    await prisma.$transaction(async (tx) => {
+      const permission = await repo.createAgentPermission(
+        organization.id,
+        agent.id,
+        {
+          action: parsed.data.action,
+          resource: parsed.data.resource || "",
+          decision: parsed.data.decision,
+          description: parsed.data.description || null,
+        },
+        tx
+      );
+      await recordAuditEvent(tx, {
+        organizationId: organization.id,
+        actorType: "USER",
+        actorUserId: user.id,
+        agentId: agent.id,
+        eventType: AUDIT_EVENT_TYPES.PERMISSION_CREATED,
+        entityType: "AgentPermission",
+        entityId: permission.id,
+        action: permission.action,
+        metadata: { resource: permission.resource, decision: permission.decision },
+      });
     });
   } catch (error) {
     if (error instanceof DuplicatePermissionError) {
@@ -80,7 +101,7 @@ export async function updateAgentPermissionAction(
   _prevState: PermissionFormState,
   formData: FormData
 ): Promise<PermissionFormState> {
-  const { organization, role } = await requireActiveOrganization();
+  const { organization, user, role } = await requireActiveOrganization();
   if (!canManageAgentPermissions(role)) {
     return { error: "You don't have permission to manage agent permissions." };
   }
@@ -96,11 +117,31 @@ export async function updateAgentPermissionAction(
   }
 
   try {
-    const updated = await repo.updateAgentPermission(organization.id, permissionId, {
-      action: parsed.data.action,
-      resource: parsed.data.resource || "",
-      decision: parsed.data.decision,
-      description: parsed.data.description || null,
+    const updated = await prisma.$transaction(async (tx) => {
+      const updated = await repo.updateAgentPermission(
+        organization.id,
+        permissionId,
+        {
+          action: parsed.data.action,
+          resource: parsed.data.resource || "",
+          decision: parsed.data.decision,
+          description: parsed.data.description || null,
+        },
+        tx
+      );
+      if (!updated) return null;
+      await recordAuditEvent(tx, {
+        organizationId: organization.id,
+        actorType: "USER",
+        actorUserId: user.id,
+        agentId: updated.agentId,
+        eventType: AUDIT_EVENT_TYPES.PERMISSION_UPDATED,
+        entityType: "AgentPermission",
+        entityId: updated.id,
+        action: updated.action,
+        metadata: { resource: updated.resource, decision: updated.decision },
+      });
+      return updated;
     });
     if (!updated) return { error: "Permission not found" };
   } catch (error) {
@@ -115,12 +156,30 @@ export async function updateAgentPermissionAction(
 }
 
 export async function deleteAgentPermissionAction(agentSlug: string, permissionId: string) {
-  const { organization, role } = await requireActiveOrganization();
+  const { organization, user, role } = await requireActiveOrganization();
   if (!canManageAgentPermissions(role)) {
     throw new Error("You don't have permission to manage agent permissions.");
   }
 
-  await repo.deleteAgentPermission(organization.id, permissionId);
+  const permission = await repo.getAgentPermission(organization.id, permissionId);
+
+  await prisma.$transaction(async (tx) => {
+    const deleted = await repo.deleteAgentPermission(organization.id, permissionId, tx);
+    if (deleted && permission) {
+      await recordAuditEvent(tx, {
+        organizationId: organization.id,
+        actorType: "USER",
+        actorUserId: user.id,
+        agentId: permission.agentId,
+        eventType: AUDIT_EVENT_TYPES.PERMISSION_DELETED,
+        entityType: "AgentPermission",
+        entityId: permission.id,
+        action: permission.action,
+        metadata: { resource: permission.resource, decision: permission.decision },
+      });
+    }
+  });
+
   revalidatePath(`/agents/${agentSlug}`);
 }
 
@@ -195,8 +254,23 @@ export async function createPolicyAction(
     if (!agent) return { error: "Selected agent was not found in this organization." };
   }
 
-  const policy = await repo.createPolicy(organization.id, user.id, parsed.data);
+  const policy = await prisma.$transaction(async (tx) => {
+    const policy = await repo.createPolicy(organization.id, user.id, parsed.data, tx);
+    await recordAuditEvent(tx, {
+      organizationId: organization.id,
+      actorType: "USER",
+      actorUserId: user.id,
+      agentId: policy.agentId,
+      eventType: AUDIT_EVENT_TYPES.POLICY_CREATED,
+      entityType: "Policy",
+      entityId: policy.id,
+      action: policy.action,
+      metadata: { name: policy.name, decision: policy.decision },
+    });
+    return policy;
+  });
 
+  trackEvent("policy_created", { organizationId: organization.id });
   revalidatePath("/policies");
   redirect(`/policies/${policy.id}/edit`);
 }
@@ -206,7 +280,7 @@ export async function updatePolicyAction(
   _prevState: PolicyFormState,
   formData: FormData
 ): Promise<PolicyFormState> {
-  const { organization, role } = await requireActiveOrganization();
+  const { organization, user, role } = await requireActiveOrganization();
   if (!canManagePolicies(role)) {
     return { error: "You don't have permission to manage policies." };
   }
@@ -221,7 +295,22 @@ export async function updatePolicyAction(
     if (!agent) return { error: "Selected agent was not found in this organization." };
   }
 
-  const updated = await repo.updatePolicy(organization.id, policyId, parsed.data);
+  const updated = await prisma.$transaction(async (tx) => {
+    const updated = await repo.updatePolicy(organization.id, policyId, parsed.data, tx);
+    if (!updated) return null;
+    await recordAuditEvent(tx, {
+      organizationId: organization.id,
+      actorType: "USER",
+      actorUserId: user.id,
+      agentId: updated.agentId,
+      eventType: AUDIT_EVENT_TYPES.POLICY_UPDATED,
+      entityType: "Policy",
+      entityId: updated.id,
+      action: updated.action,
+      metadata: { name: updated.name, decision: updated.decision },
+    });
+    return updated;
+  });
   if (!updated) return { error: "Policy not found" };
 
   revalidatePath("/policies");
@@ -230,22 +319,58 @@ export async function updatePolicyAction(
 }
 
 export async function setPolicyStatusAction(policyId: string, status: "ACTIVE" | "DISABLED") {
-  const { organization, role } = await requireActiveOrganization();
+  const { organization, user, role } = await requireActiveOrganization();
   if (!canManagePolicies(role)) {
     throw new Error("You don't have permission to manage policies.");
   }
 
-  await repo.setPolicyStatus(organization.id, policyId, status);
+  const policy = await repo.getPolicy(organization.id, policyId);
+
+  await prisma.$transaction(async (tx) => {
+    const changed = await repo.setPolicyStatus(organization.id, policyId, status, tx);
+    if (changed && policy) {
+      await recordAuditEvent(tx, {
+        organizationId: organization.id,
+        actorType: "USER",
+        actorUserId: user.id,
+        agentId: policy.agentId,
+        eventType: status === "ACTIVE" ? AUDIT_EVENT_TYPES.POLICY_ENABLED : AUDIT_EVENT_TYPES.POLICY_DISABLED,
+        entityType: "Policy",
+        entityId: policy.id,
+        action: policy.action,
+        metadata: { name: policy.name },
+      });
+    }
+  });
+
   revalidatePath("/policies");
 }
 
 export async function deletePolicyAction(policyId: string) {
-  const { organization, role } = await requireActiveOrganization();
+  const { organization, user, role } = await requireActiveOrganization();
   if (!canManagePolicies(role)) {
     throw new Error("You don't have permission to manage policies.");
   }
 
-  await repo.deletePolicy(organization.id, policyId);
+  const policy = await repo.getPolicy(organization.id, policyId);
+
+  await prisma.$transaction(async (tx) => {
+    const deleted = await repo.deletePolicy(organization.id, policyId, tx);
+    if (deleted && policy) {
+      await recordAuditEvent(tx, {
+        organizationId: organization.id,
+        actorType: "USER",
+        actorUserId: user.id,
+        agentId: policy.agentId,
+        eventType: AUDIT_EVENT_TYPES.POLICY_DELETED,
+        entityType: "Policy",
+        entityId: policy.id,
+        action: policy.action,
+        metadata: { name: policy.name },
+      });
+    }
+  });
+
   revalidatePath("/policies");
 }
 

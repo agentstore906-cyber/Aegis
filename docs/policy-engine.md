@@ -133,14 +133,15 @@ history attached to it.
 
 ## What Phase 2 deliberately doesn't do
 
-- No approval workflow. `REQUIRE_APPROVAL` is evaluated and recorded; acting
-  on it (routing to a human, waiting, resuming the agent) is Phase 3.
-- No full audit log — `PolicyEvaluation` is the audit trail for *decisions*,
-  but permission/policy CRUD events themselves aren't (yet) written to a
-  separate `AuditEvent` table.
 - No policy DSL, no glob/regex actions (only exact match and a single
   `prefix.*` wildcard segment), no visual rule builder, no policy
   versioning beyond the evaluation-time snapshot described above.
+
+Phase 3 (see [`docs/approvals-and-audit.md`](approvals-and-audit.md)) added
+the two things this section used to list as missing: `evaluateAgentAction`
+now creates a real `ApprovalRequest` when it resolves to `REQUIRE_APPROVAL`,
+and permission/policy/agent CRUD, plus every approval state change, is
+written to an append-only `AuditEvent` table.
 
 ## Test scenarios
 

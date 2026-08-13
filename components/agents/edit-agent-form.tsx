@@ -12,7 +12,13 @@ const initialState: UpdateAgentState = {};
 
 const MODEL_PROVIDERS = ["Anthropic", "OpenAI", "Google", "Mistral", "Custom"];
 
-export function EditAgentForm({ agent }: { agent: Agent }) {
+export function EditAgentForm({
+  agent,
+  teams = [],
+}: {
+  agent: Agent;
+  teams?: { id: string; name: string }[];
+}) {
   const updateWithSlug = updateAgentAction.bind(null, agent.slug);
   const [state, formAction, pending] = useActionState(updateWithSlug, initialState);
 
@@ -48,6 +54,21 @@ export function EditAgentForm({ agent }: { agent: Agent }) {
           <Label htmlFor="owner">Owner / team</Label>
           <Input id="owner" name="owner" required maxLength={80} defaultValue={agent.owner} />
         </div>
+
+        {teams.length > 0 && (
+          <div>
+            <Label htmlFor="teamId">Team</Label>
+            <Select id="teamId" name="teamId" defaultValue={agent.teamId ?? ""}>
+              <option value="">No team</option>
+              {teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </Select>
+            <FieldHint>Optional — used for cost breakdowns by team.</FieldHint>
+          </div>
+        )}
 
         <div>
           <Label htmlFor="environment">Environment</Label>

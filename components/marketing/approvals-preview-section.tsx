@@ -50,7 +50,7 @@ export function ApprovalsPreviewSection() {
           </div>
 
           <div className="order-1 lg:order-2">
-            <PreviewLabel>Coming next — Approvals</PreviewLabel>
+            <PreviewLabel>Live — Approvals</PreviewLabel>
             <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">
               Autonomous when safe. Human when it matters.
             </h2>

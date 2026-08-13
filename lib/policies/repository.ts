@@ -9,7 +9,7 @@ import type {
   RiskLevel,
 } from "@prisma/client";
 
-import { prisma } from "@/lib/db";
+import { prisma, type PrismaOrTx } from "@/lib/db";
 import type { PolicyWithConditions } from "@/lib/policies/matcher";
 
 export class DuplicatePermissionError extends Error {
@@ -44,10 +44,11 @@ export async function getAgentPermission(organizationId: string, id: string) {
 export async function createAgentPermission(
   organizationId: string,
   agentId: string,
-  input: AgentPermissionInput
+  input: AgentPermissionInput,
+  client: PrismaOrTx = prisma
 ) {
   try {
-    return await prisma.agentPermission.create({
+    return await client.agentPermission.create({
       data: { organizationId, agentId, ...input },
     });
   } catch (error) {
@@ -61,15 +62,16 @@ export async function createAgentPermission(
 export async function updateAgentPermission(
   organizationId: string,
   id: string,
-  input: AgentPermissionInput
+  input: AgentPermissionInput,
+  client: PrismaOrTx = prisma
 ) {
   try {
-    const result = await prisma.agentPermission.updateMany({
+    const result = await client.agentPermission.updateMany({
       where: { id, organizationId },
       data: input,
     });
     if (result.count === 0) return null;
-    return prisma.agentPermission.findFirst({ where: { id, organizationId } });
+    return client.agentPermission.findFirst({ where: { id, organizationId } });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       throw new DuplicatePermissionError();
@@ -78,8 +80,8 @@ export async function updateAgentPermission(
   }
 }
 
-export async function deleteAgentPermission(organizationId: string, id: string) {
-  const result = await prisma.agentPermission.deleteMany({ where: { id, organizationId } });
+export async function deleteAgentPermission(organizationId: string, id: string, client: PrismaOrTx = prisma) {
+  const result = await client.agentPermission.deleteMany({ where: { id, organizationId } });
   return result.count > 0;
 }
 
@@ -174,10 +176,11 @@ export async function listPoliciesForAgent(organizationId: string, agentId: stri
 export async function createPolicy(
   organizationId: string,
   createdById: string | null,
-  input: PolicyInput
+  input: PolicyInput,
+  client: PrismaOrTx = prisma
 ) {
   const { conditions, ...policyFields } = input;
-  return prisma.policy.create({
+  return client.policy.create({
     data: {
       organizationId,
       createdById,
@@ -188,10 +191,23 @@ export async function createPolicy(
   });
 }
 
-export async function updatePolicy(organizationId: string, id: string, input: PolicyInput) {
+/**
+ * Deletes and recreates the policy's conditions as one unit with the
+ * policy update itself. When called standalone (no `client` passed) it
+ * opens its own transaction; when composed inside a caller's transaction
+ * (e.g. so the audit event commits atomically alongside it), pass that
+ * transaction's client instead — Prisma doesn't support nesting
+ * `$transaction` inside an already-open transaction.
+ */
+export async function updatePolicy(
+  organizationId: string,
+  id: string,
+  input: PolicyInput,
+  client?: PrismaOrTx
+) {
   const { conditions, ...policyFields } = input;
 
-  return prisma.$transaction(async (tx) => {
+  const run = async (tx: PrismaOrTx) => {
     const existing = await tx.policy.findFirst({ where: { id, organizationId } });
     if (!existing) return null;
 
@@ -202,16 +218,23 @@ export async function updatePolicy(organizationId: string, id: string, input: Po
       data: { ...policyFields, conditions: { create: conditions } },
       include: { conditions: true },
     });
-  });
+  };
+
+  return client ? run(client) : prisma.$transaction(run);
 }
 
-export async function setPolicyStatus(organizationId: string, id: string, status: PolicyStatus) {
-  const result = await prisma.policy.updateMany({ where: { id, organizationId }, data: { status } });
+export async function setPolicyStatus(
+  organizationId: string,
+  id: string,
+  status: PolicyStatus,
+  client: PrismaOrTx = prisma
+) {
+  const result = await client.policy.updateMany({ where: { id, organizationId }, data: { status } });
   return result.count > 0;
 }
 
-export async function deletePolicy(organizationId: string, id: string) {
-  const result = await prisma.policy.deleteMany({ where: { id, organizationId } });
+export async function deletePolicy(organizationId: string, id: string, client: PrismaOrTx = prisma) {
+  const result = await client.policy.deleteMany({ where: { id, organizationId } });
   return result.count > 0;
 }
 
@@ -272,6 +295,14 @@ export async function getPolicyEvaluation(organizationId: string, id: string) {
   return prisma.policyEvaluation.findFirst({
     where: { id, organizationId },
     include: { agent: { select: { id: true, name: true, slug: true } }, activityEvent: true },
+  });
+}
+
+/** Every policy evaluation sharing a trace ID — used by Security Alert detail to show "related policy evaluations." */
+export async function getPolicyEvaluationsByTraceId(organizationId: string, traceId: string) {
+  return prisma.policyEvaluation.findMany({
+    where: { organizationId, traceId },
+    orderBy: { createdAt: "asc" },
   });
 }
 

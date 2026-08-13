@@ -51,6 +51,16 @@ export async function requireActiveOrganization() {
   return { user, organization: membership.organization, role: membership.role };
 }
 
+/** All members of an organization, for actor pickers (e.g. the audit trail filter). */
+export async function listOrganizationMembers(organizationId: string) {
+  const members = await prisma.organizationMember.findMany({
+    where: { organizationId },
+    include: { user: { select: { id: true, name: true, email: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  return members.map((m) => m.user);
+}
+
 /**
  * Verifies the caller belongs to the organization that owns `organizationId`
  * before any tenant-scoped write or read. Never trust an organizationId

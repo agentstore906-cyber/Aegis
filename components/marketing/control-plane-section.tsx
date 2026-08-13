@@ -1,4 +1,4 @@
-import { Eye, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Eye, ShieldCheck, SlidersHorizontal, Wallet } from "lucide-react";
 import { LogoMark } from "@/components/ui/logo";
 
 const PILLARS = [
@@ -17,11 +17,16 @@ const PILLARS = [
     title: "Secure",
     description: "Identify dangerous or unusual behavior before it becomes an incident.",
   },
+  {
+    icon: Wallet,
+    title: "Optimize",
+    description: "Track spend per agent, per model, and per task — and catch cost spikes early.",
+  },
 ];
 
 export function ControlPlaneSection() {
   return (
-    <section id="product" className="border-t border-border">
+    <section id="solution" className="border-t border-border">
       <div className="mx-auto max-w-6xl px-6 py-20">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-semibold tracking-tight text-foreground">
@@ -33,7 +38,7 @@ export function ControlPlaneSection() {
           </p>
         </div>
 
-        <div className="mx-auto mt-14 max-w-3xl">
+        <div className="mx-auto mt-14 max-w-4xl">
           <div className="flex flex-col items-center gap-3">
             <FlowRow labels={["AI Agents"]} />
             <Connector />
@@ -42,7 +47,7 @@ export function ControlPlaneSection() {
               <span className="text-sm font-medium">Aegis</span>
             </div>
             <Connector />
-            <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {PILLARS.map(({ icon: Icon, title, description }) => (
                 <div
                   key={title}

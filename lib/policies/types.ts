@@ -56,6 +56,8 @@ export type PolicyEvaluationResult = {
   matchedPermissionId?: string;
   matchedPermissionSnapshot?: PermissionSnapshot;
   evaluationId: string;
+  /** Set when this evaluation created an ApprovalRequest (decision === REQUIRE_APPROVAL). */
+  approvalRequestId?: string;
   traceId: string;
 };
 

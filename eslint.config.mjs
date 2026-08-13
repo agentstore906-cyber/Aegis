@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // packages/* are independent npm workspace packages with their own
+    // tooling (see packages/agent-sdk) — not part of the Next.js app.
+    "packages/**",
   ]),
 ]);
 

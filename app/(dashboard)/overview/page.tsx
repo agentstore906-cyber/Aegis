@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
-import { Bot, CheckCircle2, AlertTriangle, TrendingUp, ArrowRight, Activity, ShieldBan } from "lucide-react";
+import { Bot, CheckCircle2, AlertTriangle, TrendingUp, ArrowRight, Activity, ShieldBan, ShieldAlert, DollarSign, Plus } from "lucide-react";
 import Link from "next/link";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { getAgentStats, getAgentsNeedingAttention } from "@/lib/agents/queries";
+import { canManageAgents } from "@/lib/agents/authorization";
 import { getRecentActivity, getOrgSpendSummary, getRiskEventCount } from "@/lib/activity/queries";
 import { getPolicyDashboardStats } from "@/lib/policies/repository";
+import { getApprovalStats } from "@/lib/approvals/repository";
+import { getSecurityStats } from "@/lib/security/repository";
 import { formatCurrency, formatDateTime, formatRelativeTime } from "@/lib/utils";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -14,20 +17,81 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { AgentStatusBadge, RiskBadge } from "@/components/dashboard/status-badges";
 import { ActivityRow } from "@/components/activity/activity-row";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ButtonLink } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Overview" };
 
 export default async function OverviewPage() {
-  const { organization } = await requireActiveOrganization();
+  const { organization, role } = await requireActiveOrganization();
 
-  const [stats, needsAttention, recentActivity, spendCents, riskEvents, policyStats] = await Promise.all([
-    getAgentStats(organization.id),
-    getAgentsNeedingAttention(organization.id),
-    getRecentActivity(organization.id, 8),
-    getOrgSpendSummary(organization.id),
-    getRiskEventCount(organization.id),
-    getPolicyDashboardStats(organization.id),
-  ]);
+  const stats = await getAgentStats(organization.id);
+
+  if (stats.total === 0) {
+    return (
+      <div>
+        <PageHeader title="Overview" description={`Welcome to ${organization.name}.`} />
+        <div className="py-6">
+          <EmptyState
+            icon={Bot}
+            title="No agents connected yet."
+            description="Connect your first AI agent to start monitoring runs, costs and activity."
+            action={
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {canManageAgents(role) && (
+                  <ButtonLink href="/agents/new">
+                    <Plus className="size-4" aria-hidden="true" />
+                    Connect Agent
+                  </ButtonLink>
+                )}
+                <ButtonLink href="/demo" variant="secondary">
+                  Explore Demo
+                </ButtonLink>
+              </div>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const [needsAttention, recentActivity, spendCents, riskEvents, policyStats, approvalStats, securityStats] =
+    await Promise.all([
+      getAgentsNeedingAttention(organization.id),
+      getRecentActivity(organization.id, 8),
+      getOrgSpendSummary(organization.id),
+      getRiskEventCount(organization.id),
+      getPolicyDashboardStats(organization.id),
+      getApprovalStats(organization.id),
+      getSecurityStats(organization.id),
+    ]);
+
+  const attentionItems = [
+    {
+      label: "Pending approvals",
+      count: approvalStats.pending,
+      href: "/approvals",
+      icon: CheckCircle2,
+    },
+    {
+      label: "Open high / critical alerts",
+      count: securityStats.highOrCritical,
+      href: "/security",
+      icon: ShieldAlert,
+    },
+    {
+      label: "Cost anomalies today",
+      count: securityStats.costAnomalies,
+      href: "/costs",
+      icon: DollarSign,
+    },
+    {
+      label: "Blocked actions (24h)",
+      count: policyStats.last24h.BLOCK,
+      href: "/policies/evaluations?decision=BLOCK",
+      icon: ShieldBan,
+    },
+  ];
+  const totalAttentionCount = attentionItems.reduce((sum, item) => sum + item.count, 0);
 
   return (
     <div>
@@ -36,7 +100,7 @@ export default async function OverviewPage() {
         description={`What's happening across ${organization.name}'s agents right now.`}
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard label="Agents" value={String(stats.total)} icon={Bot} />
         <StatCard label="Active" value={String(stats.active)} icon={CheckCircle2} />
         <StatCard
@@ -44,6 +108,12 @@ export default async function OverviewPage() {
           value={String(stats.needsAttention + stats.paused)}
           icon={AlertTriangle}
           tone={stats.needsAttention > 0 ? "warning" : undefined}
+        />
+        <StatCard
+          label="Pending approvals"
+          value={String(approvalStats.pending)}
+          icon={CheckCircle2}
+          tone={approvalStats.pending > 0 ? "warning" : undefined}
         />
         <StatCard
           label="High-risk events (7d)"
@@ -138,6 +208,48 @@ export default async function OverviewPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>Needs your attention</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {totalAttentionCount === 0 ? (
+            <div className="px-5 py-10">
+              <EmptyState
+                icon={CheckCircle2}
+                title="Nothing needs you right now"
+                description="Pending approvals, high-severity alerts, cost anomalies, and blocked actions will show up here."
+              />
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {attentionItems.map((item) => (
+                <li key={item.label}>
+                  <Link
+                    href={item.href}
+                    className="focus-ring flex items-center justify-between gap-3 px-5 py-3 text-sm hover:bg-surface-muted"
+                  >
+                    <span className="flex items-center gap-2.5 text-foreground">
+                      <item.icon
+                        className={`size-4 ${item.count > 0 ? "text-warning" : "text-muted-foreground/40"}`}
+                        aria-hidden="true"
+                      />
+                      {item.label}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <span className={`font-medium tabular-nums ${item.count > 0 ? "text-foreground" : ""}`}>
+                        {item.count}
+                      </span>
+                      <ArrowRight className="size-3" aria-hidden="true" />
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="mt-4">
         <CardHeader>

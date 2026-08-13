@@ -19,6 +19,11 @@ import { filterApplicablePolicies, resolveBestPermission } from "../lib/policies
 import { resolveDecision } from "../lib/policies/resolver";
 import type { PolicyEvaluationInput } from "../lib/policies/types";
 
+// Phase 5's detectors (lib/security/detectors.ts) are pure functions — no
+// `server-only` guard — so, like the policy engine above, they're reused
+// directly here rather than hand-faked. See buildSecurityAlertScenarios().
+import { detectCostSpike, detectNewSensitiveAction } from "../lib/security/detectors";
+
 const prisma = new PrismaClient();
 
 const COMPANIES = [
@@ -81,6 +86,7 @@ type PermissionSeed = {
 type AgentSeed = {
   name: string;
   owner: string;
+  team?: string; // matches a name in TEAMS below — optional, so one agent stays team-less to demo the "no team" fallback
   environment: "PRODUCTION" | "STAGING" | "DEVELOPMENT";
   status: "ACTIVE" | "PAUSED" | "NEEDS_ATTENTION" | "ARCHIVED";
   riskLevel: RiskLevel;
@@ -96,10 +102,13 @@ type AgentSeed = {
   eventCount: number;
 };
 
+const TEAMS = ["Revenue", "Platform", "Finance"] as const;
+
 const AGENTS: AgentSeed[] = [
   {
     name: "Sales Agent",
     owner: "Revenue",
+    team: "Revenue",
     environment: "PRODUCTION",
     status: "ACTIVE",
     riskLevel: "MEDIUM",
@@ -172,6 +181,7 @@ const AGENTS: AgentSeed[] = [
   {
     name: "Support Agent",
     owner: "Support",
+    team: "Revenue",
     environment: "PRODUCTION",
     status: "ACTIVE",
     riskLevel: "LOW",
@@ -240,6 +250,7 @@ const AGENTS: AgentSeed[] = [
   {
     name: "Finance Agent",
     owner: "Finance",
+    team: "Finance",
     environment: "PRODUCTION",
     status: "ACTIVE",
     riskLevel: "HIGH",
@@ -375,6 +386,7 @@ const AGENTS: AgentSeed[] = [
   {
     name: "Coding Agent",
     owner: "Platform",
+    team: "Platform",
     environment: "STAGING",
     status: "ACTIVE",
     riskLevel: "MEDIUM",
@@ -445,6 +457,7 @@ const AGENTS: AgentSeed[] = [
   {
     name: "Deployment Agent",
     owner: "Platform",
+    team: "Platform",
     environment: "PRODUCTION",
     status: "NEEDS_ATTENTION",
     riskLevel: "CRITICAL",
@@ -561,6 +574,16 @@ const POLICIES: PolicySeed[] = [
 ];
 
 /**
+ * A REQUIRE_APPROVAL scenario can optionally be tagged with how the human
+ * reviewer resolved it, so the seed data shows the full Phase 3 loop
+ * (request -> decision -> audit trail), not just PENDING requests. Left
+ * untagged, a REQUIRE_APPROVAL scenario stays PENDING — e.g. the $1,250
+ * refund, so there's always something to review in a fresh demo org.
+ */
+type SeedResolution = { decision: "APPROVED" | "REJECTED"; comment: string };
+type SeedScenario = Omit<PolicyEvaluationInput, "organizationId"> & { resolution?: SeedResolution };
+
+/**
  * A handful of realistic evaluation scenarios, run through the real policy
  * engine (matcher + resolver — see the imports above) so the seeded
  * evaluation history is exactly as trustworthy as production output, not
@@ -569,7 +592,7 @@ const POLICIES: PolicySeed[] = [
 function buildScenarios(
   organizationId: string,
   agentIdByName: Map<string, string>
-): PolicyEvaluationInput[] {
+): (SeedScenario & { organizationId: string })[] {
   const salesId = agentIdByName.get("Sales Agent")!;
   const financeId = agentIdByName.get("Finance Agent")!;
   const deploymentId = agentIdByName.get("Deployment Agent")!;
@@ -577,17 +600,29 @@ function buildScenarios(
   const supportId = agentIdByName.get("Support Agent")!;
   const researchId = agentIdByName.get("Research Agent")!;
 
-  const scenarios: Omit<PolicyEvaluationInput, "organizationId">[] = [
+  const scenarios: SeedScenario[] = [
     { agentId: salesId, action: "crm.contact.read", resource: "contact:acme-inc" },
     { agentId: salesId, action: "crm.export" },
     { agentId: salesId, action: "customer.delete" }, // no permission configured — demonstrates policy-only BLOCK
+    {
+      agentId: salesId,
+      action: "email.send",
+      resource: "email:Umbrella Co",
+      resolution: { decision: "REJECTED", comment: "Customer asked not to be contacted again — do not resend." },
+    },
     { agentId: financeId, action: "refund.issue", context: { amount: 250, customer: "Globex Corp" } },
+    // Left PENDING on purpose — the primary approval a fresh demo org has waiting.
     { agentId: financeId, action: "refund.issue", context: { amount: 1250, customer: "Acme Inc." } },
     { agentId: financeId, action: "refund.issue", context: { amount: 4200, customer: "Stark Industries" } },
     { agentId: financeId, action: "bank_account.change" },
     { agentId: financeId, action: "invoice.read", resource: "invoice:inv_4821" },
     { agentId: deploymentId, action: "deployment.preview" },
-    { agentId: deploymentId, action: "deployment.execute", environment: "PRODUCTION" },
+    {
+      agentId: deploymentId,
+      action: "deployment.execute",
+      environment: "PRODUCTION",
+      resolution: { decision: "APPROVED", comment: "Production deployment approved after QA sign-off." },
+    },
     { agentId: deploymentId, action: "production.secret.read" },
     { agentId: codingId, action: "repo.test.execute" },
     { agentId: codingId, action: "repo.pull_request.merge", resource: "pr:#412" },
@@ -602,11 +637,19 @@ function buildScenarios(
 
 /**
  * Mirrors lib/policies/evaluate.ts's orchestration (permission resolution ->
- * policy matching -> decision resolution -> persistence) using only the
- * pure, non-`server-only` pieces of the engine, since this script runs
- * outside Next.js's server boundary.
+ * policy matching -> decision resolution -> persistence, plus approval
+ * request + audit event creation on REQUIRE_APPROVAL) using only the pure,
+ * non-`server-only` pieces of the engine, since this script runs outside
+ * Next.js's server boundary and can't import server-only-guarded modules
+ * (lib/policies/evaluate.ts, lib/approvals/repository.ts, lib/audit/service.ts).
  */
-async function runSeedEvaluation(organizationId: string, input: PolicyEvaluationInput) {
+async function runSeedEvaluation(
+  organizationId: string,
+  input: SeedScenario & { organizationId: string }
+): Promise<{ decision: PolicyDecision; approvalRequestId?: string }> {
+  // `input.resolution` is seed-only metadata, not part of PolicyEvaluationInput —
+  // harmless to pass through, since TS only excess-property-checks object literals.
+  const evaluationInput = input;
   const agent = await prisma.agent.findUniqueOrThrow({ where: { id: input.agentId } });
 
   const [permissions, candidatePolicies] = await Promise.all([
@@ -617,12 +660,14 @@ async function runSeedEvaluation(organizationId: string, input: PolicyEvaluation
     }),
   ]);
 
-  const permission = resolveBestPermission(permissions, input);
-  const matchedPolicies = filterApplicablePolicies(candidatePolicies, input);
-  const resolved = resolveDecision(permission, matchedPolicies, input);
+  const permission = resolveBestPermission(permissions, evaluationInput);
+  const matchedPolicies = filterApplicablePolicies(candidatePolicies, evaluationInput);
+  const resolved = resolveDecision(permission, matchedPolicies, evaluationInput);
   const traceId = randomUUID();
+  const context =
+    input.context && Object.keys(input.context).length > 0 ? input.context : undefined;
 
-  await prisma.$transaction(async (tx) => {
+  const approvalRequestId = await prisma.$transaction(async (tx) => {
     const activityEvent = await tx.activityEvent.create({
       data: {
         organizationId,
@@ -633,11 +678,11 @@ async function runSeedEvaluation(organizationId: string, input: PolicyEvaluation
         status: resolved.decision === "ALLOW" ? "ALLOWED" : resolved.decision === "BLOCK" ? "BLOCKED" : "APPROVAL_REQUIRED",
         riskLevel: input.riskLevel ?? agent.riskLevel,
         traceId,
-        metadata: input.context && Object.keys(input.context).length > 0 ? input.context : undefined,
+        metadata: context,
       },
     });
 
-    await tx.policyEvaluation.create({
+    const policyEvaluation = await tx.policyEvaluation.create({
       data: {
         organizationId,
         agentId: input.agentId,
@@ -646,7 +691,7 @@ async function runSeedEvaluation(organizationId: string, input: PolicyEvaluation
         environment: input.environment,
         tool: input.tool,
         riskLevel: input.riskLevel,
-        context: input.context && Object.keys(input.context).length > 0 ? input.context : undefined,
+        context,
         decision: resolved.decision,
         reason: resolved.reason,
         permissionId: resolved.matchedPermissionSnapshot?.id,
@@ -657,9 +702,299 @@ async function runSeedEvaluation(organizationId: string, input: PolicyEvaluation
         activityEventId: activityEvent.id,
       },
     });
+
+    if (resolved.decision !== "REQUIRE_APPROVAL") return undefined;
+
+    const approval = await tx.approvalRequest.create({
+      data: {
+        organizationId,
+        agentId: input.agentId,
+        policyEvaluationId: policyEvaluation.id,
+        action: input.action,
+        resource: input.resource,
+        environment: input.environment,
+        tool: input.tool,
+        riskLevel: input.riskLevel ?? agent.riskLevel,
+        context,
+        reason: resolved.reason,
+        traceId,
+      },
+    });
+
+    await tx.auditEvent.create({
+      data: {
+        organizationId,
+        actorType: "SYSTEM",
+        agentId: input.agentId,
+        eventType: "approval.requested",
+        entityType: "ApprovalRequest",
+        entityId: approval.id,
+        action: input.action,
+        metadata: { reason: resolved.reason },
+        traceId,
+      },
+    });
+
+    return approval.id;
   });
 
-  return resolved.decision;
+  return { decision: resolved.decision, approvalRequestId };
+}
+
+/** Mirrors lib/approvals/service.ts's resolveApproval() with raw prisma calls, for the same server-only reason. */
+async function resolveSeedApproval(
+  organizationId: string,
+  approvalRequestId: string,
+  decidedByUserId: string,
+  resolution: SeedResolution
+) {
+  await prisma.$transaction(async (tx) => {
+    const request = await tx.approvalRequest.update({
+      where: { id: approvalRequestId },
+      data: { status: resolution.decision, resolvedAt: new Date() },
+    });
+
+    await tx.approvalDecision.create({
+      data: {
+        organizationId,
+        approvalRequestId,
+        decidedByUserId,
+        decision: resolution.decision,
+        comment: resolution.comment,
+      },
+    });
+
+    await tx.auditEvent.create({
+      data: {
+        organizationId,
+        actorType: "USER",
+        actorUserId: decidedByUserId,
+        agentId: request.agentId,
+        eventType: resolution.decision === "APPROVED" ? "approval.approved" : "approval.rejected",
+        entityType: "ApprovalRequest",
+        entityId: request.id,
+        action: request.action,
+        metadata: { comment: resolution.comment },
+        traceId: request.traceId,
+      },
+    });
+
+    await tx.activityEvent.create({
+      data: {
+        organizationId,
+        agentId: request.agentId,
+        eventType: "SYSTEM",
+        action: resolution.decision === "APPROVED" ? "approval.approve" : "approval.reject",
+        resource: request.resource,
+        status: resolution.decision === "APPROVED" ? "ALLOWED" : "BLOCKED",
+        riskLevel: request.riskLevel ?? "LOW",
+        traceId: request.traceId,
+        metadata: { comment: resolution.comment, approvalRequestId: request.id },
+      },
+    });
+  });
+}
+
+function startOfUtcDay(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+/**
+ * Two realistic Security Alert scenarios (spec §50), computed with the
+ * real pure detector functions from lib/security/detectors.ts — same
+ * "not hand-faked" principle as the policy engine and approval scenarios
+ * above — rather than hand-writing alert text.
+ *
+ * Cost spike: backdates 7 days of a ~$12/day baseline for Research Agent,
+ * then adds a "repeated execution loop" spike of ~$94 today, so the
+ * seeded data and the detector's own math agree exactly (whoever loads
+ * the demo sees the same numbers the detector computed).
+ *
+ * New sensitive action: Sales Agent's crm.export baseline permission is
+ * BLOCK — a first-ever attempt at a HIGH-risk blocked action is exactly
+ * the CRITICAL-severity case from docs/security-intelligence.md's
+ * severity table.
+ */
+async function seedSecurityAlerts(
+  organizationId: string,
+  agentIdByName: Map<string, string>,
+  resolverUserId: string
+) {
+  const researchId = agentIdByName.get("Research Agent")!;
+  const salesId = agentIdByName.get("Sales Agent")!;
+
+  const todayStart = startOfUtcDay(new Date());
+  const baselineDailyCents = 1200; // $12/day
+  const spikeCents = 9400; // $94 today
+
+  const baselineEvents = [];
+  for (let daysAgo = 1; daysAgo <= 7; daysAgo += 1) {
+    const dayStart = new Date(todayStart.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+    // Two events per day summing to the baseline, spread across the day.
+    baselineEvents.push(
+      {
+        organizationId,
+        agentId: researchId,
+        timestamp: new Date(dayStart.getTime() + 10 * 60 * 60 * 1000),
+        eventType: "MODEL_CALL" as const,
+        action: "summarize_document",
+        resource: `file:${randomUUID().slice(0, 8)}.pdf`,
+        status: "ALLOWED" as const,
+        riskLevel: "LOW" as const,
+        durationMs: randomInt(900, 2600),
+        modelProvider: "Anthropic",
+        modelName: "claude-sonnet-4.5",
+        costCents: Math.round(baselineDailyCents * 0.6),
+        traceId: randomUUID(),
+      },
+      {
+        organizationId,
+        agentId: researchId,
+        timestamp: new Date(dayStart.getTime() + 15 * 60 * 60 * 1000),
+        eventType: "MODEL_CALL" as const,
+        action: "summarize_document",
+        resource: `file:${randomUUID().slice(0, 8)}.pdf`,
+        status: "ALLOWED" as const,
+        riskLevel: "LOW" as const,
+        durationMs: randomInt(900, 2600),
+        modelProvider: "Anthropic",
+        modelName: "claude-sonnet-4.5",
+        costCents: Math.round(baselineDailyCents * 0.4),
+        traceId: randomUUID(),
+      }
+    );
+  }
+  await prisma.activityEvent.createMany({ data: baselineEvents });
+
+  // Today: a repeated execution loop — many small identical calls instead of a few large ones.
+  const spikeEventCount = 18;
+  const spikeCostPerEvent = Math.round(spikeCents / spikeEventCount);
+  const spikeTraceId = randomUUID();
+  const spikeEvents = Array.from({ length: spikeEventCount }, (_, i) => ({
+    organizationId,
+    agentId: researchId,
+    timestamp: new Date(todayStart.getTime() + (i + 1) * 5 * 60 * 1000),
+    eventType: "MODEL_CALL" as const,
+    action: "summarize_document",
+    resource: "file:quarterly-report.pdf",
+    status: "ALLOWED" as const,
+    riskLevel: "LOW" as const,
+    durationMs: randomInt(900, 2600),
+    modelProvider: "Anthropic",
+    modelName: "claude-sonnet-4.5",
+    costCents: spikeCostPerEvent,
+    traceId: spikeTraceId,
+  }));
+  await prisma.activityEvent.createMany({ data: spikeEvents });
+
+  const costFinding = detectCostSpike({
+    agentId: researchId,
+    agentName: "Research Agent",
+    todaySpendCents: spikeEventCount * spikeCostPerEvent,
+    trailingDailyAverageCents: baselineDailyCents,
+  });
+
+  if (costFinding) {
+    const alert = await prisma.securityAlert.create({
+      data: {
+        organizationId,
+        agentId: costFinding.agentId,
+        type: costFinding.type,
+        severity: costFinding.severity,
+        title: costFinding.title,
+        description: costFinding.description,
+        evidence: costFinding.evidence as never,
+        traceId: spikeTraceId,
+      },
+    });
+    await prisma.auditEvent.create({
+      data: {
+        organizationId,
+        actorType: "SYSTEM",
+        agentId: costFinding.agentId,
+        eventType: "security_alert.created",
+        entityType: "SecurityAlert",
+        entityId: alert.id,
+        action: costFinding.type,
+        metadata: { severity: costFinding.severity, title: costFinding.title },
+        traceId: spikeTraceId,
+      },
+    });
+  }
+
+  // A first-ever, HIGH-risk, blocked crm.export attempt for Sales Agent.
+  const exportTraceId = randomUUID();
+  const exportEvent = await prisma.activityEvent.create({
+    data: {
+      organizationId,
+      agentId: salesId,
+      timestamp: new Date(),
+      eventType: "DATA_ACCESS",
+      action: "crm.export",
+      resource: "export:all-contacts",
+      status: "BLOCKED",
+      riskLevel: "HIGH",
+      traceId: exportTraceId,
+    },
+  });
+
+  const sensitiveActionFinding = detectNewSensitiveAction({
+    agentId: salesId,
+    agentName: "Sales Agent",
+    action: "crm.export",
+    riskLevel: "HIGH",
+    status: "BLOCKED",
+    traceId: exportTraceId,
+    hasPriorHistory: false,
+  });
+
+  if (sensitiveActionFinding) {
+    const alert = await prisma.securityAlert.create({
+      data: {
+        organizationId,
+        agentId: sensitiveActionFinding.agentId,
+        type: sensitiveActionFinding.type,
+        severity: sensitiveActionFinding.severity,
+        title: sensitiveActionFinding.title,
+        description: sensitiveActionFinding.description,
+        evidence: sensitiveActionFinding.evidence as never,
+        traceId: exportTraceId,
+      },
+    });
+    await prisma.auditEvent.create({
+      data: {
+        organizationId,
+        actorType: "SYSTEM",
+        agentId: sensitiveActionFinding.agentId,
+        eventType: "security_alert.created",
+        entityType: "SecurityAlert",
+        entityId: alert.id,
+        action: sensitiveActionFinding.type,
+        metadata: { severity: sensitiveActionFinding.severity, title: sensitiveActionFinding.title },
+        traceId: exportTraceId,
+      },
+    });
+
+    // Acknowledged, not resolved — demonstrates the in-progress state, not just OPEN/RESOLVED.
+    await prisma.securityAlert.update({
+      where: { id: alert.id },
+      data: { status: "ACKNOWLEDGED", acknowledgedAt: new Date(), acknowledgedByUserId: resolverUserId },
+    });
+    await prisma.auditEvent.create({
+      data: {
+        organizationId,
+        actorType: "USER",
+        actorUserId: resolverUserId,
+        agentId: sensitiveActionFinding.agentId,
+        eventType: "security_alert.acknowledged",
+        entityType: "SecurityAlert",
+        entityId: alert.id,
+        action: sensitiveActionFinding.type,
+      },
+    });
+  }
+
+  console.log(`  Security alerts: seeded cost spike (Research Agent) and new sensitive action (Sales Agent, ${exportEvent.action})`);
 }
 
 async function main() {
@@ -673,6 +1008,19 @@ async function main() {
     create: {
       name: "Jordan Reyes",
       email: "demo@northstarlabs.io",
+      passwordHash,
+    },
+  });
+
+  // The demo org's approver — referenced in decisions/comments below so
+  // Approvals and Audit read like a real team made these calls, not a
+  // faceless system.
+  const approver = await prisma.user.upsert({
+    where: { email: "sarah.chen@northstarlabs.io" },
+    update: {},
+    create: {
+      name: "Sarah Chen",
+      email: "sarah.chen@northstarlabs.io",
       passwordHash,
     },
   });
@@ -693,13 +1041,59 @@ async function main() {
     create: { organizationId: organization.id, userId: user.id, role: "OWNER" },
   });
 
+  await prisma.organizationMember.upsert({
+    where: { organizationId_userId: { organizationId: organization.id, userId: approver.id } },
+    update: {},
+    create: { organizationId: organization.id, userId: approver.id, role: "ADMIN" },
+  });
+
+  // Role examples (spec §50/§17-18) — demonstrate the expanded Phase 5
+  // RBAC beyond OWNER/ADMIN.
+  const securityReviewer = await prisma.user.upsert({
+    where: { email: "priya.patel@northstarlabs.io" },
+    update: {},
+    create: { name: "Priya Patel", email: "priya.patel@northstarlabs.io", passwordHash },
+  });
+  await prisma.organizationMember.upsert({
+    where: { organizationId_userId: { organizationId: organization.id, userId: securityReviewer.id } },
+    update: {},
+    create: { organizationId: organization.id, userId: securityReviewer.id, role: "SECURITY" },
+  });
+
+  const financeViewer = await prisma.user.upsert({
+    where: { email: "marcus.webb@northstarlabs.io" },
+    update: {},
+    create: { name: "Marcus Webb", email: "marcus.webb@northstarlabs.io", passwordHash },
+  });
+  await prisma.organizationMember.upsert({
+    where: { organizationId_userId: { organizationId: organization.id, userId: financeViewer.id } },
+    update: {},
+    create: { organizationId: organization.id, userId: financeViewer.id, role: "FINANCE" },
+  });
+
   // Clear previously seeded domain data for this org so the script is re-runnable.
+  // AuditEvent has no cascade path from Agent/PolicyEvaluation, so it needs an
+  // explicit delete; ApprovalRequest/ApprovalDecision cascade from PolicyEvaluation
+  // and ApprovalRequest respectively via onDelete: Cascade at the database level.
+  // SecurityAlert has no cascade path either; Agent.teamId is SetNull on Team
+  // delete, so teams must be cleared after agents (or the FK would dangle) —
+  // deleting agents first, then teams, keeps this simple.
+  await prisma.securityAlert.deleteMany({ where: { organizationId: organization.id } });
+  await prisma.auditEvent.deleteMany({ where: { organizationId: organization.id } });
   await prisma.policyEvaluation.deleteMany({ where: { organizationId: organization.id } });
   await prisma.policy.deleteMany({ where: { organizationId: organization.id } });
   await prisma.agentPermission.deleteMany({ where: { organizationId: organization.id } });
   await prisma.activityEvent.deleteMany({ where: { organizationId: organization.id } });
   await prisma.agentTool.deleteMany({ where: { agent: { organizationId: organization.id } } });
   await prisma.agent.deleteMany({ where: { organizationId: organization.id } });
+  await prisma.team.deleteMany({ where: { organizationId: organization.id } });
+
+  const teamIdByName = new Map<string, string>();
+  for (const teamName of TEAMS) {
+    const team = await prisma.team.create({ data: { organizationId: organization.id, name: teamName } });
+    teamIdByName.set(teamName, team.id);
+  }
+  console.log(`  Teams: created ${TEAMS.length} teams`);
 
   const agentIdByName = new Map<string, string>();
 
@@ -714,6 +1108,7 @@ async function main() {
         riskLevel: seed.riskLevel,
         environment: seed.environment,
         owner: seed.owner,
+        teamId: seed.team ? teamIdByName.get(seed.team) : undefined,
         modelProvider: seed.modelProvider,
         modelName: seed.modelName,
         framework: seed.framework,
@@ -768,6 +1163,8 @@ async function main() {
     console.log(`  ${seed.name}: created with ${events.length} activity events`);
   }
 
+  await seedSecurityAlerts(organization.id, agentIdByName, securityReviewer.id);
+
   for (const policySeed of POLICIES) {
     await prisma.policy.create({
       data: {
@@ -793,15 +1190,31 @@ async function main() {
 
   const scenarios = buildScenarios(organization.id, agentIdByName);
   let evaluationCount = 0;
+  let approvalCount = 0;
+  let resolvedCount = 0;
   for (const scenario of scenarios) {
-    await runSeedEvaluation(organization.id, scenario);
+    const { approvalRequestId } = await runSeedEvaluation(organization.id, scenario);
     evaluationCount += 1;
+
+    if (approvalRequestId) {
+      approvalCount += 1;
+      if (scenario.resolution) {
+        await resolveSeedApproval(organization.id, approvalRequestId, approver.id, scenario.resolution);
+        resolvedCount += 1;
+      }
+    }
   }
   console.log(`  Evaluations: ran ${evaluationCount} scenarios through the real policy engine`);
+  console.log(
+    `  Approvals: created ${approvalCount} approval requests (${resolvedCount} resolved by Sarah Chen, ${approvalCount - resolvedCount} left pending)`
+  );
 
   console.log("\nSeed complete.");
   console.log("  Organization: Northstar Labs (northstar-labs)");
-  console.log("  Sign in with: demo@northstarlabs.io / aegis-demo-2026");
+  console.log("  Sign in as owner (OWNER):             demo@northstarlabs.io / aegis-demo-2026");
+  console.log("  Sign in as approver (ADMIN):          sarah.chen@northstarlabs.io / aegis-demo-2026");
+  console.log("  Sign in as security reviewer (SECURITY): priya.patel@northstarlabs.io / aegis-demo-2026");
+  console.log("  Sign in as finance viewer (FINANCE):  marcus.webb@northstarlabs.io / aegis-demo-2026");
 }
 
 main()

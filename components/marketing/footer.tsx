@@ -5,11 +5,23 @@ const COLUMNS = [
   {
     title: "Product",
     links: [
-      { href: "/#product", label: "Overview" },
+      { href: "/#preview", label: "Overview" },
+      { href: "/#solution", label: "Solutions" },
       { href: "/#activity", label: "Activity" },
       { href: "/#policies", label: "Policies" },
       { href: "/#security", label: "Security" },
+      { href: "/#integrations", label: "Integrations" },
       { href: "/pricing", label: "Pricing" },
+    ],
+  },
+  {
+    title: "Resources",
+    links: [
+      { href: "/docs", label: "Documentation" },
+      { href: "/docs/api", label: "API reference" },
+      { href: "/trust", label: "Trust & Security" },
+      { href: "/demo", label: "Live demo" },
+      { href: "/contact", label: "Contact" },
     ],
   },
   {
@@ -17,7 +29,14 @@ const COLUMNS = [
     links: [
       { href: "/#developers", label: "Developers" },
       { href: "/sign-in", label: "Sign in" },
-      { href: "/sign-up", label: "Request access" },
+      { href: "/sign-up", label: "Start free" },
+    ],
+  },
+  {
+    title: "Legal",
+    links: [
+      { href: "/privacy", label: "Privacy" },
+      { href: "/terms", label: "Terms" },
     ],
   },
 ];
@@ -34,7 +53,7 @@ export function MarketingFooter() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-10 sm:gap-16">
+          <div className="grid grid-cols-2 gap-10 sm:grid-cols-4 sm:gap-10">
             {COLUMNS.map((col) => (
               <div key={col.title}>
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

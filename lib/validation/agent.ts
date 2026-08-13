@@ -8,6 +8,7 @@ export const createAgentSchema = z.object({
   name: z.string().trim().min(2, "Name must be at least 2 characters").max(80),
   description: z.string().trim().max(500).optional().or(z.literal("")),
   owner: z.string().trim().min(1, "Owner / team is required").max(80),
+  teamId: z.string().trim().max(60).optional().or(z.literal("")),
   environment: z.enum(AGENT_ENVIRONMENTS),
   modelProvider: z.string().trim().min(1, "Model provider is required").max(60),
   modelName: z.string().trim().min(1, "Model is required").max(60),

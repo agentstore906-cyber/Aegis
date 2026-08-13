@@ -25,8 +25,8 @@ export function MobileSidebar() {
 
       {open && (
         <div className="fixed inset-0 z-50 flex">
-          <div className="w-64 flex-col border-r border-border bg-surface p-4">
-            <div className="mb-6 flex items-center justify-between">
+          <div className="flex h-full w-64 flex-col border-r border-border bg-surface p-4">
+            <div className="mb-6 flex shrink-0 items-center justify-between">
               <Logo />
               <button
                 type="button"
@@ -37,7 +37,7 @@ export function MobileSidebar() {
                 <X className="size-4" />
               </button>
             </div>
-            <nav className="space-y-0.5" aria-label="Dashboard">
+            <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto" aria-label="Dashboard">
               {NAV_ITEMS.filter((item) => item.status === "active").map((item) => {
                 const isActive = pathname.startsWith(item.href);
                 return (
@@ -60,7 +60,7 @@ export function MobileSidebar() {
           <button
             type="button"
             aria-label="Close navigation"
-            className="flex-1 bg-foreground/20"
+            className="focus-ring flex-1 bg-foreground/20"
             onClick={() => setOpen(false)}
           />
         </div>

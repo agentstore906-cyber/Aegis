@@ -17,7 +17,7 @@ export function AgentPoliciesList({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Link
               href={`/policies/${policy.id}/edit`}
-              className="font-medium text-foreground hover:underline"
+              className="focus-ring rounded-sm font-medium text-foreground hover:underline"
             >
               {policy.name}
             </Link>

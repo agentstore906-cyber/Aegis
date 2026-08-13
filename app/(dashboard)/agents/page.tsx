@@ -3,6 +3,7 @@ import { Bot, Plus } from "lucide-react";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { listAgents } from "@/lib/agents/queries";
+import { canManageAgents } from "@/lib/agents/authorization";
 import { agentFiltersSchema } from "@/lib/validation/agent";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -21,7 +22,8 @@ export default async function AgentsPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const { organization } = await requireActiveOrganization();
+  const { organization, role } = await requireActiveOrganization();
+  const canManage = canManageAgents(role);
   const raw = await searchParams;
 
   const filters = agentFiltersSchema.parse({
@@ -50,10 +52,12 @@ export default async function AgentsPage({
         title="Agents"
         description={`${total} agent${total === 1 ? "" : "s"} in ${organization.name}`}
         action={
-          <ButtonLink href="/agents/new">
-            <Plus className="size-4" aria-hidden="true" />
-            Create agent
-          </ButtonLink>
+          canManage && (
+            <ButtonLink href="/agents/new">
+              <Plus className="size-4" aria-hidden="true" />
+              Create agent
+            </ButtonLink>
+          )
         }
       />
 
@@ -64,18 +68,25 @@ export default async function AgentsPage({
       {agents.length === 0 ? (
         <EmptyState
           icon={Bot}
-          title={hasFilters ? "No agents match your filters" : "No agents yet"}
+          title={hasFilters ? "No agents match your filters" : "No agents connected yet."}
           description={
             hasFilters
               ? "Try adjusting your search or filters."
-              : "Create your first agent to start monitoring its activity."
+              : "Connect your first AI agent to start monitoring runs, costs and activity."
           }
           action={
             !hasFilters && (
-              <ButtonLink href="/agents/new" size="sm">
-                <Plus className="size-4" aria-hidden="true" />
-                Create agent
-              </ButtonLink>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {canManage && (
+                  <ButtonLink href="/agents/new" size="sm">
+                    <Plus className="size-4" aria-hidden="true" />
+                    Connect Agent
+                  </ButtonLink>
+                )}
+                <ButtonLink href="/demo" variant="secondary" size="sm">
+                  Explore Demo
+                </ButtonLink>
+              </div>
             )
           }
         />

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { LogOut, ChevronDown } from "lucide-react";
+import { LogOut, ChevronDown, MessageSquareText } from "lucide-react";
 import { signOutAction } from "@/lib/auth/actions";
 
 export function UserMenu({ name, email }: { name: string; email: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const feedbackEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL;
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -27,6 +28,7 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label="Account menu"
         className="focus-ring flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-muted"
       >
         <span className="flex size-7 items-center justify-center rounded-full bg-foreground text-xs font-medium text-background">
@@ -45,6 +47,17 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
             <p className="truncate text-sm font-medium text-foreground">{name}</p>
             <p className="truncate text-xs text-muted-foreground">{email}</p>
           </div>
+          {feedbackEmail && (
+            <a
+              href={`mailto:${feedbackEmail}?subject=Aegis%20feedback`}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-surface-muted"
+            >
+              <MessageSquareText className="size-4" aria-hidden="true" />
+              Send feedback
+            </a>
+          )}
           <form action={signOutAction}>
             <button
               type="submit"

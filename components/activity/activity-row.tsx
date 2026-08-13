@@ -27,7 +27,7 @@ export function ActivityRow({
         {agentName && agentSlug && (
           <Link
             href={`/agents/${agentSlug}`}
-            className="w-32 shrink-0 truncate font-medium text-foreground hover:underline"
+            className="focus-ring w-32 shrink-0 truncate rounded-sm font-medium text-foreground hover:underline"
           >
             {agentName}
           </Link>

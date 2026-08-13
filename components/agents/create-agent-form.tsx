@@ -11,7 +11,7 @@ const initialState: CreateAgentState = {};
 
 const MODEL_PROVIDERS = ["Anthropic", "OpenAI", "Google", "Mistral", "Custom"];
 
-export function CreateAgentForm() {
+export function CreateAgentForm({ teams = [] }: { teams?: { id: string; name: string }[] }) {
   const [state, formAction, pending] = useActionState(createAgentAction, initialState);
 
   return (
@@ -38,7 +38,23 @@ export function CreateAgentForm() {
         <div>
           <Label htmlFor="owner">Owner / team</Label>
           <Input id="owner" name="owner" required maxLength={80} placeholder="Finance" />
+          <FieldHint>Free text — e.g. a person or department name.</FieldHint>
         </div>
+
+        {teams.length > 0 && (
+          <div>
+            <Label htmlFor="teamId">Team</Label>
+            <Select id="teamId" name="teamId" defaultValue="">
+              <option value="">No team</option>
+              {teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </Select>
+            <FieldHint>Optional — used for cost breakdowns by team.</FieldHint>
+          </div>
+        )}
 
         <div>
           <Label htmlFor="environment">Environment</Label>

@@ -52,7 +52,7 @@ export default async function PoliciesPage({
         title="Policies"
         description={`${total} polic${total === 1 ? "y" : "ies"} — define the rules every agent must follow.`}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <ButtonLink href="/policies/evaluations" variant="secondary" size="sm">
               <History className="size-4" aria-hidden="true" />
               Evaluation history

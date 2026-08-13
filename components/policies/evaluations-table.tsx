@@ -35,7 +35,10 @@ export function EvaluationsTable({ evaluations }: { evaluations: EvaluationRow[]
                 </Link>
               </Td>
               <Td>
-                <Link href={`/agents/${evaluation.agent.slug}`} className="font-medium text-foreground hover:underline">
+                <Link
+                  href={`/agents/${evaluation.agent.slug}`}
+                  className="focus-ring rounded-sm font-medium text-foreground hover:underline"
+                >
                   {evaluation.agent.name}
                 </Link>
               </Td>

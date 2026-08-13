@@ -15,7 +15,7 @@ export function PoliciesPreviewSection() {
       <div className="mx-auto max-w-6xl px-6 py-20">
         <div className="grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
           <div>
-            <PreviewLabel>Coming next — Policy Engine</PreviewLabel>
+            <PreviewLabel>Live — Policy Engine</PreviewLabel>
             <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">
               Turn company rules into agent guardrails.
             </h2>

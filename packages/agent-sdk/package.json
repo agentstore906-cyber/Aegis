@@ -1,0 +1,30 @@
+{
+  "name": "@aegis/agent-sdk",
+  "version": "0.2.0",
+  "description": "Official TypeScript SDK for real agents to authenticate with Aegis, report activity, and ask for authorization decisions before acting.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "vitest": "^4.1.10"
+  }
+}

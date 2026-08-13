@@ -21,7 +21,8 @@ export function PolicyForm({
   agents,
   action,
 }: {
-  policy?: Policy;
+  /** A full Policy when editing, or a partial set of prefilled defaults (e.g. from a Security Alert's "Create policy" link). */
+  policy?: Partial<Policy>;
   conditions?: PolicyCondition[];
   agents: AgentOption[];
   action: (prevState: PolicyFormState, formData: FormData) => Promise<PolicyFormState>;

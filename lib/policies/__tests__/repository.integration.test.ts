@@ -56,6 +56,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // SecurityAlert.agent is onDelete: Restrict (Phase 6) — clear any
+  // alerts the detectors created during evaluation before deleting agents.
+  await prisma.securityAlert.deleteMany({ where: { organizationId: { in: [orgA.id, orgB.id] } } });
   await prisma.policyEvaluation.deleteMany({ where: { organizationId: { in: [orgA.id, orgB.id] } } });
   await prisma.activityEvent.deleteMany({ where: { organizationId: { in: [orgA.id, orgB.id] } } });
   await prisma.policy.deleteMany({ where: { organizationId: { in: [orgA.id, orgB.id] } } });

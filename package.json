@@ -2,6 +2,9 @@
   "name": "aegis",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -12,7 +15,9 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:sdk": "npm run build --workspace packages/agent-sdk",
+    "test:sdk": "npm run test --workspace packages/agent-sdk"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -28,6 +33,7 @@
     "prisma": "^6.19.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "stripe": "^22.5.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

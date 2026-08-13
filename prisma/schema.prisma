@@ -33,10 +33,17 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts Account[]
-  sessions Session[]
-  memberships OrganizationMember[]
-  createdPolicies Policy[]
+  accounts                   Account[]
+  sessions                   Session[]
+  memberships                OrganizationMember[]
+  createdPolicies            Policy[]
+  approvalDecisions          ApprovalDecision[]
+  auditEvents                AuditEvent[]
+  apiKeys                    ApiKey[]
+  acknowledgedSecurityAlerts SecurityAlert[]          @relation("SecurityAlertAcknowledgedBy")
+  resolvedSecurityAlerts     SecurityAlert[]          @relation("SecurityAlertResolvedBy")
+  createdWebhookEndpoints    WebhookEndpoint[]
+  sentInvitations            OrganizationInvitation[]
 
   @@map("users")
 }
@@ -88,20 +95,53 @@ model VerificationToken {
 // ---------------------------------------------------------------------------
 
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  plan      String   @default("free")
+  id   String @id @default(cuid())
+  name String
+  slug String @unique
+  plan String @default("free")
+
+  // Billing — Phase 6. `plan` above is the actual source of truth Aegis
+  // enforces entitlements against (see lib/billing/plans.ts); these fields
+  // mirror Stripe's own state so the org's billing status survives without
+  // a live Stripe call on every request. Null/"free" until a checkout
+  // actually completes — see lib/billing/stripe.ts and
+  // app/api/webhooks/stripe/route.ts for how they're populated, and
+  // docs/deployment.md for what configuring Stripe requires.
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  subscriptionStatus   String?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+
+  // Retention — configuration only. Nothing in the application deletes
+  // data automatically based on these; see docs/retention.md. Null means
+  // "no configured limit," not "delete immediately."
+  activityRetentionDays Int?
+  auditRetentionDays    Int?
+  securityRetentionDays Int?
+
+  // SSO — schema placeholder only, no SAML/OIDC integration exists yet.
+  // See docs/rbac.md and the Settings > Security "coming soon" card.
+  ssoEnabled  Boolean @default(false)
+  ssoProvider String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members          OrganizationMember[]
-  agents           Agent[]
-  activityEvents   ActivityEvent[]
-  agentPermissions AgentPermission[]
-  policies         Policy[]
+  members           OrganizationMember[]
+  agents            Agent[]
+  activityEvents    ActivityEvent[]
+  agentPermissions  AgentPermission[]
+  policies          Policy[]
   policyEvaluations PolicyEvaluation[]
+  approvalRequests  ApprovalRequest[]
+  approvalDecisions ApprovalDecision[]
+  auditEvents       AuditEvent[]
+  apiKeys           ApiKey[]
+  securityAlerts    SecurityAlert[]
+  teams             Team[]
+  invitations       OrganizationInvitation[]
+  webhookEndpoints  WebhookEndpoint[]
 
   @@map("organizations")
 }
@@ -111,6 +151,7 @@ enum MemberRole {
   ADMIN
   ENGINEER
   SECURITY
+  FINANCE
   VIEWER
 }
 
@@ -155,17 +196,18 @@ enum Environment {
 }
 
 model Agent {
-  id             String @id @default(cuid())
+  id             String  @id @default(cuid())
   organizationId String
+  teamId         String?
 
   name        String
   slug        String
-  description String?      @db.Text
-  status      AgentStatus  @default(ACTIVE)
-  riskLevel   RiskLevel    @default(LOW)
-  environment Environment  @default(PRODUCTION)
+  description String?     @db.Text
+  status      AgentStatus @default(ACTIVE)
+  riskLevel   RiskLevel   @default(LOW)
+  environment Environment @default(PRODUCTION)
 
-  owner String // owning team or individual, e.g. "Revenue", "Platform"
+  owner String // owning team or individual, e.g. "Revenue", "Platform" — free text; teamId below is the optional structured version used for cost breakdowns
 
   modelProvider String // e.g. "OpenAI", "Anthropic"
   modelName     String // e.g. "gpt-4.1", "claude-sonnet-4.5"
@@ -177,14 +219,19 @@ model Agent {
   lastActiveAt DateTime?
 
   organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team              Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
   tools             AgentTool[]
   activityEvents    ActivityEvent[]
   permissions       AgentPermission[]
   policies          Policy[]
   policyEvaluations PolicyEvaluation[]
+  approvalRequests  ApprovalRequest[]
+  auditEvents       AuditEvent[]
+  securityAlerts    SecurityAlert[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, status])
+  @@index([teamId])
   @@map("agents")
 }
 
@@ -247,6 +294,13 @@ model ActivityEvent {
   modelName     String?
   costCents     Int?
 
+  // Optional cost-intelligence detail (Phase 5) — kept on ActivityEvent
+  // rather than a separate table; see docs/cost-intelligence.md for why.
+  inputTokens  Int?
+  outputTokens Int?
+  taskId       String?
+  taskType     String?
+
   traceId       String?
   parentEventId String?
 
@@ -262,6 +316,7 @@ model ActivityEvent {
   @@index([organizationId, status])
   @@index([organizationId, riskLevel])
   @@index([traceId])
+  @@index([agentId, action]) // supports the "has this agent ever done this action before" existence check — lib/security/detectors.ts
   @@map("activity_events")
 }
 
@@ -340,9 +395,9 @@ model Policy {
   organizationId String
 
   name        String
-  description String?      @db.Text
-  status      PolicyStatus @default(ACTIVE)
-  priority    Int          @default(100) // higher = considered more specific when explaining ties
+  description String?        @db.Text
+  status      PolicyStatus   @default(ACTIVE)
+  priority    Int            @default(100) // higher = considered more specific when explaining ties
   decision    PolicyDecision
 
   // Scope — all optional except action; unset fields mean "matches any".
@@ -371,7 +426,7 @@ model Policy {
 // are combined with AND. Field paths are resolved against a fixed
 // whitelist (never evaluated as code) — see lib/policies/conditions.ts.
 model PolicyCondition {
-  id       String             @id @default(cuid())
+  id       String            @id @default(cuid())
   policyId String
   field    String // e.g. "context.amount", "environment", "riskLevel"
   operator ConditionOperator
@@ -401,7 +456,7 @@ model PolicyEvaluation {
   context     Json?
 
   decision PolicyDecision
-  reason   String @db.Text
+  reason   String         @db.Text
 
   permissionId       String?
   permissionSnapshot Json?
@@ -414,13 +469,403 @@ model PolicyEvaluation {
 
   createdAt DateTime @default(now())
 
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  agent         Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  activityEvent ActivityEvent? @relation(fields: [activityEventId], references: [id], onDelete: SetNull)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent           Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  activityEvent   ActivityEvent?   @relation(fields: [activityEventId], references: [id], onDelete: SetNull)
+  approvalRequest ApprovalRequest?
 
   @@index([organizationId, createdAt])
   @@index([agentId, createdAt])
   @@index([organizationId, decision])
   @@index([traceId])
   @@map("policy_evaluations")
+}
+
+// ---------------------------------------------------------------------------
+// Approvals — Phase 3. When evaluateAgentAction() resolves to
+// REQUIRE_APPROVAL, an ApprovalRequest is created in the same transaction as
+// the PolicyEvaluation it came from. The unique constraint on
+// policyEvaluationId is the idempotency guarantee: a given evaluation can
+// never produce more than one approval request, even under retries — see
+// lib/approvals/repository.ts and docs/approvals-and-audit.md.
+//
+// ApprovalDecision rows are an append-only, immutable record of who
+// approved or rejected a request. They are never edited or deleted by the
+// application; a request that needs to change state again (e.g. an
+// approval later cancelled) gets a new ApprovalRequest status transition
+// and AuditEvent, not a rewritten decision.
+// ---------------------------------------------------------------------------
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum ApprovalDecisionType {
+  APPROVED
+  REJECTED
+}
+
+model ApprovalRequest {
+  id             String @id @default(cuid())
+  organizationId String
+  agentId        String
+
+  // One approval request per policy evaluation — see note above.
+  policyEvaluationId String @unique
+
+  action      String
+  resource    String?
+  environment Environment?
+  tool        String?
+  riskLevel   RiskLevel?
+  context     Json?
+  reason      String       @db.Text // snapshot of the policy engine's reason at request time
+
+  status      ApprovalStatus @default(PENDING)
+  requestedAt DateTime       @default(now())
+  expiresAt   DateTime?
+  resolvedAt  DateTime?
+
+  traceId String?
+
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent            Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  policyEvaluation PolicyEvaluation   @relation(fields: [policyEvaluationId], references: [id], onDelete: Cascade)
+  decisions        ApprovalDecision[]
+
+  @@index([organizationId, status, requestedAt])
+  @@index([agentId, status])
+  @@index([traceId])
+  @@map("approval_requests")
+}
+
+// Immutable historical record of a human decision on an ApprovalRequest.
+// decidedByUserId deliberately uses onDelete: Restrict (stronger than
+// Policy.createdBy's SetNull) — Aegis must never lose who made an approval
+// decision.
+model ApprovalDecision {
+  id                String               @id @default(cuid())
+  organizationId    String
+  approvalRequestId String
+  decidedByUserId   String
+  decision          ApprovalDecisionType
+  comment           String?              @db.Text
+
+  createdAt DateTime @default(now())
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  approvalRequest ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+  decidedBy       User            @relation(fields: [decidedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([approvalRequestId])
+  @@index([organizationId, createdAt])
+  @@map("approval_decisions")
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail — Phase 3. Append-only from the application's perspective: no
+// Server Action or UI ever updates or deletes an AuditEvent. actorUserId is
+// nullable (and SetNull on delete, like Policy.createdBy) because
+// SYSTEM-originated events (e.g. the policy engine requesting an approval)
+// have no human actor.
+// ---------------------------------------------------------------------------
+
+enum AuditActorType {
+  USER
+  SYSTEM
+  AGENT
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILURE
+}
+
+model AuditEvent {
+  id             String @id @default(cuid())
+  organizationId String
+
+  actorType   AuditActorType
+  actorUserId String?
+  agentId     String?
+
+  eventType  String // e.g. "approval.requested", "policy.created" — see lib/audit/types.ts
+  entityType String // e.g. "ApprovalRequest", "Policy", "AgentPermission", "Agent"
+  entityId   String
+  action     String
+  result     AuditResult @default(SUCCESS)
+  metadata   Json?
+  traceId    String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actorUser    User?        @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  agent        Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, eventType])
+  @@index([organizationId, entityType, entityId])
+  @@index([traceId])
+  @@map("audit_events")
+}
+
+// ---------------------------------------------------------------------------
+// API keys & external ingestion — Phase 4. Lets a real agent process
+// authenticate as an organization and call the public API
+// (app/api/v1/*) to send activity, ask for a policy decision, and poll an
+// approval's status, without a browser session.
+//
+// The raw key is never stored. Only `keyHash` (sha256 of the full raw
+// key — see lib/api-keys/crypto.ts for why a fast hash is the right choice
+// here, unlike the bcrypt used for user passwords) is persisted, and it is
+// what authentication actually looks up by (`@unique`). `prefix` is a
+// display-only truncation shown in the dashboard list — it carries no
+// authentication weight.
+// ---------------------------------------------------------------------------
+
+enum ApiKeyEnvironment {
+  LIVE
+  TEST
+}
+
+model ApiKey {
+  id             String            @id @default(cuid())
+  organizationId String
+  name           String
+  environment    ApiKeyEnvironment @default(LIVE)
+  prefix         String
+  keyHash        String            @unique
+  scopes         String[]          @default(["events:write", "policy:evaluate", "approvals:read"])
+
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy          User?               @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  idempotencyRecords IdempotencyRecord[]
+
+  @@index([organizationId, revokedAt])
+  @@map("api_keys")
+}
+
+// Caches the response of a mutating API call by (apiKey, operation, caller
+// idempotency key), so a retried POST /api/v1/evaluate (or /events) never
+// double-creates an ApprovalRequest / ActivityEvent. `requestHash` detects
+// a caller reusing the same Idempotency-Key with a different body, which
+// is a conflict, not a valid retry — see lib/api/idempotency.ts.
+model IdempotencyRecord {
+  id             String @id @default(cuid())
+  organizationId String
+  apiKeyId       String
+
+  operation    String // "events.create" | "evaluate.create" | "agents.register"
+  key          String // caller-supplied Idempotency-Key header value
+  requestHash  String // sha256 of the normalized request body
+  statusCode   Int
+  responseBody Json
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  @@unique([apiKeyId, operation, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+// ---------------------------------------------------------------------------
+// Teams — Phase 5. Deliberately minimal: a name an agent can belong to, used
+// for cost breakdowns and ownership display. No membership-to-team linking,
+// no org chart. See docs/cost-intelligence.md.
+// ---------------------------------------------------------------------------
+
+model Team {
+  id             String @id @default(cuid())
+  organizationId String
+  name           String
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agents       Agent[]
+
+  @@unique([organizationId, name])
+  @@map("teams")
+}
+
+// ---------------------------------------------------------------------------
+// Member invitations — Phase 5. No email is sent (no mail provider exists
+// in this codebase); an admin shares the generated link directly. See
+// docs/rbac.md and lib/organizations/invitations.ts.
+// ---------------------------------------------------------------------------
+
+model OrganizationInvitation {
+  id             String     @id @default(cuid())
+  organizationId String
+  email          String
+  role           MemberRole @default(ENGINEER)
+  token          String     @unique
+
+  invitedByUserId String?
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User?        @relation(fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, acceptedAt])
+  @@map("organization_invitations")
+}
+
+// ---------------------------------------------------------------------------
+// Security alerts — Phase 5. `type` is a plain string (see
+// lib/security/types.ts#SECURITY_ALERT_TYPES), not a Prisma enum, for the
+// same reason AuditEvent.eventType is: a new detector should never need a
+// migration. A cost anomaly is just another alert type (COST_SPIKE) —
+// deliberately one alert system, not two — see docs/cost-intelligence.md.
+//
+// Deduplication: repeated triggers of the same (agentId, type) within a
+// rolling window update `count`/`lastSeenAt` on the existing OPEN alert
+// instead of creating a new row — see lib/security/repository.ts.
+// ---------------------------------------------------------------------------
+
+enum SecurityAlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SecurityAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model SecurityAlert {
+  id             String @id @default(cuid())
+  organizationId String
+  agentId        String
+
+  type        String
+  severity    SecurityAlertSeverity
+  status      SecurityAlertStatus   @default(OPEN)
+  title       String
+  description String                @db.Text
+  evidence    Json?
+  traceId     String?
+
+  count       Int      @default(1)
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  acknowledgedAt       DateTime?
+  acknowledgedByUserId String?
+  resolvedAt           DateTime?
+  resolvedByUserId     String?
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // Restrict, not Cascade: a security alert is evidence, and must never
+  // silently disappear because its agent was deleted. There is no
+  // agent-delete feature today, so this is currently dormant — but if one
+  // ships, it will have to explicitly deal with an agent's alert history
+  // rather than losing it for free. (Not SetNull: agentId here is
+  // non-nullable by design, unlike AuditEvent.agentId — every alert is
+  // always about a specific agent.)
+  agent              Agent        @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  acknowledgedByUser User?        @relation("SecurityAlertAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
+  resolvedByUser     User?        @relation("SecurityAlertResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, severity])
+  @@index([agentId, type])
+  @@index([organizationId, firstSeenAt])
+  @@map("security_alerts")
+}
+
+// ---------------------------------------------------------------------------
+// Outbound webhooks — Phase 5. Best-effort immediate delivery with a couple
+// of bounded inline retries, not a durable queue (no background-job
+// infrastructure exists in this environment) — see docs/webhooks.md for the
+// explicit limitation. `secret` is shown once at creation, like ApiKey.
+// ---------------------------------------------------------------------------
+
+enum WebhookEndpointStatus {
+  ACTIVE
+  DISABLED
+}
+
+model WebhookEndpoint {
+  id             String @id @default(cuid())
+  organizationId String
+
+  url              String
+  secret           String
+  status           WebhookEndpointStatus @default(ACTIVE)
+  subscribedEvents String[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  deliveries   WebhookDelivery[]
+
+  @@index([organizationId, status])
+  @@map("webhook_endpoints")
+}
+
+enum WebhookDeliveryStatus {
+  SUCCESS
+  FAILED
+}
+
+// Append-only delivery log — one row per attempt, not per event, so retries
+// are visible individually.
+model WebhookDelivery {
+  id                String @id @default(cuid())
+  webhookEndpointId String
+  organizationId    String
+
+  eventType  String
+  payload    Json
+  status     WebhookDeliveryStatus
+  httpStatus Int?
+  attempt    Int                   @default(1)
+
+  createdAt DateTime @default(now())
+
+  webhookEndpoint WebhookEndpoint @relation(fields: [webhookEndpointId], references: [id], onDelete: Cascade)
+
+  @@index([webhookEndpointId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("webhook_deliveries")
+}
+
+// ---------------------------------------------------------------------------
+// Billing — Phase 6. Stripe is the source of truth for subscription state;
+// this table exists only so a replayed/duplicate Stripe webhook delivery
+// (Stripe explicitly documents "at least once" delivery) can never be
+// applied twice — same check-then-create idempotency shape already used
+// for approval-request dedup, keyed on Stripe's own event id instead of an
+// Idempotency-Key header. See app/api/webhooks/stripe/route.ts.
+// ---------------------------------------------------------------------------
+
+model StripeWebhookEvent {
+  id          String   @id // Stripe event id (evt_...), not a generated cuid
+  type        String
+  processedAt DateTime @default(now())
+
+  @@map("stripe_webhook_events")
 }

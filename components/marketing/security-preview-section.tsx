@@ -7,13 +7,13 @@ export function SecurityPreviewSection() {
     <section id="security" className="border-t border-border">
       <div className="mx-auto max-w-6xl px-6 py-20">
         <div className="mx-auto max-w-2xl text-center">
-          <PreviewLabel>Coming next — Security</PreviewLabel>
+          <PreviewLabel>Live — Security</PreviewLabel>
           <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">
             Know when an agent behaves differently.
           </h2>
           <p className="mt-4 text-muted-foreground">
-            Aegis learns each agent&apos;s normal behavior and surfaces the moment
-            something changes.
+            Deterministic, explainable detectors compare each agent&apos;s activity
+            against its own history and flag the moment something changes.
           </p>
         </div>
 
@@ -68,7 +68,7 @@ export function SecurityPreviewSection() {
                 <dd className="font-medium text-foreground">$94/day</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-muted-foreground">Likely cause</dt>
+                <dt className="text-muted-foreground">Likely contributor</dt>
                 <dd className="text-foreground">Repeated execution loop</dd>
               </div>
             </dl>

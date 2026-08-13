@@ -1,22 +1,22 @@
 import type { MemberRole } from "@prisma/client";
+import { hasCapability } from "@/lib/rbac/capabilities";
 
 /**
  * Centralized role checks for the policy engine. Server Actions and page
  * loaders call these directly — never infer authorization from whether a
  * button happens to be rendered.
  *
- * Policies are org-wide guardrails, so only OWNER/ADMIN/SECURITY can author
- * them. Agent permissions are more operational (per-agent baseline access),
- * so ENGINEER can manage those too. Everyone with organization access,
- * including VIEWER, can read policies, permissions, and evaluation history.
+ * Delegates to lib/rbac/capabilities.ts's central role -> capability map
+ * (see docs/rbac.md) rather than comparing roles here — this file exists
+ * so call sites keep their existing, domain-specific names.
  */
 
 export function canManagePolicies(role: MemberRole): boolean {
-  return role === "OWNER" || role === "ADMIN" || role === "SECURITY";
+  return hasCapability(role, "manage_policies");
 }
 
 export function canManageAgentPermissions(role: MemberRole): boolean {
-  return role === "OWNER" || role === "ADMIN" || role === "SECURITY" || role === "ENGINEER";
+  return hasCapability(role, "manage_permissions");
 }
 
 /** Every role, including VIEWER, can read policies, permissions, and evaluation history. */

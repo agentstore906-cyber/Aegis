@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { signUpSchema } from "@/lib/validation/auth";
 import { hashPassword } from "@/lib/auth/password";
 import { signIn, signOut } from "@/lib/auth";
+import { trackEvent } from "@/lib/analytics/track";
 
 export type SignUpState = {
   error?: string;
@@ -31,9 +32,11 @@ export async function signUpAction(
   }
 
   const passwordHash = await hashPassword(password);
-  await prisma.user.create({
+  const user = await prisma.user.create({
     data: { name, email, passwordHash },
   });
+
+  trackEvent("signup_completed", { userId: user.id });
 
   await signIn("credentials", {
     email,

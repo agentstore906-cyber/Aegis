@@ -1,16 +1,21 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import Link from "next/link";
 import { signUpAction, type SignUpState } from "@/lib/auth/actions";
 import { Label, Input } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
+import { trackEvent } from "@/lib/analytics/track";
 
 const initialState: SignUpState = {};
 
 export function SignUpForm() {
   const [state, formAction, pending] = useActionState(signUpAction, initialState);
+
+  useEffect(() => {
+    trackEvent("signup_started");
+  }, []);
 
   return (
     <form action={formAction} className="space-y-4" noValidate>

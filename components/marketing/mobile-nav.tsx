@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
+import { TrackedButtonLink } from "@/components/analytics/tracked-button-link";
 
 export function MobileNav({ links }: { links: { href: string; label: string }[] }) {
   const [open, setOpen] = useState(false);
@@ -40,11 +41,20 @@ export function MobileNav({ links }: { links: { href: string; label: string }[] 
           </nav>
           <div className="mt-4 flex flex-col gap-2">
             <ButtonLink href="/sign-in" variant="secondary" size="sm">
-              Sign in
+              Sign In
             </ButtonLink>
-            <ButtonLink href="/sign-up" variant="primary" size="sm">
-              Get started
+            <ButtonLink href="/contact" variant="secondary" size="sm">
+              Book a Demo
             </ButtonLink>
+            <TrackedButtonLink
+              href="/sign-up"
+              variant="primary"
+              size="sm"
+              event="landing_cta_clicked"
+              eventProps={{ source: "mobile_nav" }}
+            >
+              Start Free
+            </TrackedButtonLink>
           </div>
         </div>
       )}

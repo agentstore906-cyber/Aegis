@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { getSiteUrl } from "@/lib/seo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -12,13 +13,30 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_NAME = "Aegis";
+const DESCRIPTION =
+  "Monitor, control, secure, and audit every AI agent your company runs — from one place.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(getSiteUrl()),
   title: {
-    default: "Aegis — Control every AI agent in your company",
+    default: "Aegis — The Control Plane for AI Agents",
     template: "%s — Aegis",
   },
-  description:
-    "Aegis is the control plane for AI agents. See what your agents do, control what they can access, and stay ahead of risky actions from one place.",
+  description: DESCRIPTION,
+  robots: { index: true, follow: true },
+  openGraph: {
+    type: "website",
+    siteName: SITE_NAME,
+    title: "Aegis — The Control Plane for AI Agents",
+    description: DESCRIPTION,
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Aegis — The Control Plane for AI Agents",
+    description: DESCRIPTION,
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -78,12 +78,31 @@ export async function getRecentActivity(organizationId: string, limit = 8) {
   });
 }
 
+/** Every activity event sharing a trace ID — the "related activity" list on approval/evaluation detail views. */
+export async function getActivityByTraceId(organizationId: string, traceId: string) {
+  return prisma.activityEvent.findMany({
+    where: { organizationId, traceId },
+    include: { agent: { select: { id: true, name: true, slug: true } } },
+    orderBy: { timestamp: "asc" },
+  });
+}
+
 export async function getAgentActivity(organizationId: string, agentId: string, limit = 15) {
   return prisma.activityEvent.findMany({
     where: { organizationId, agentId },
     orderBy: { timestamp: "desc" },
     take: limit,
   });
+}
+
+/** Feeds Agent Detail's risk overview — blocked/approval-required counts in a recent window. */
+export async function getAgentActivityStatusCounts(organizationId: string, agentId: string, sinceHours = 24) {
+  const since = new Date(Date.now() - sinceHours * 60 * 60 * 1000);
+  const [blocked, approvalRequired] = await Promise.all([
+    prisma.activityEvent.count({ where: { organizationId, agentId, status: "BLOCKED", timestamp: { gte: since } } }),
+    prisma.activityEvent.count({ where: { organizationId, agentId, status: "APPROVAL_REQUIRED", timestamp: { gte: since } } }),
+  ]);
+  return { blocked, approvalRequired };
 }
 
 export async function getOrgSpendSummary(organizationId: string) {

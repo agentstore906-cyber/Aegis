@@ -3,6 +3,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
+import { slugify } from "@/lib/utils";
 import type { AgentFiltersInput } from "@/lib/validation/agent";
 
 const PAGE_SIZE = 20;
@@ -89,6 +90,11 @@ export async function getAgentBySlug(organizationId: string, slug: string) {
   return { ...agent, monthlySpendCents: spendByAgent.get(agent.id) ?? 0 };
 }
 
+/** Lightweight lookup (no spend aggregation) for callers that just need the row — e.g. the public API. */
+export async function getAgentBySlugRaw(organizationId: string, slug: string) {
+  return prisma.agent.findUnique({ where: { organizationId_slug: { organizationId, slug } } });
+}
+
 export async function getAgentsNeedingAttention(organizationId: string, limit = 5) {
   return prisma.agent.findMany({
     where: { organizationId, status: { in: ["NEEDS_ATTENTION", "PAUSED"] } },
@@ -103,4 +109,26 @@ export async function listAllAgentsForOrg(organizationId: string) {
     orderBy: { name: "asc" },
     select: { id: true, name: true, slug: true },
   });
+}
+
+/**
+ * Shared by both the dashboard's create-agent Server Action and the
+ * public API's agent-register endpoint, so slug generation only lives in
+ * one place.
+ */
+export async function ensureUniqueAgentSlug(organizationId: string, name: string): Promise<string> {
+  const base = slugify(name);
+  let candidate = base;
+  let suffix = 1;
+
+  while (
+    await prisma.agent.findUnique({
+      where: { organizationId_slug: { organizationId, slug: candidate } },
+    })
+  ) {
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
+  }
+
+  return candidate;
 }

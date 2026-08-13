@@ -16,10 +16,10 @@ const BY_AGENT = [
 
 export function CostPreviewSection() {
   return (
-    <section id="developers" className="border-t border-border bg-surface-muted">
+    <section className="border-t border-border bg-surface-muted">
       <div className="mx-auto max-w-6xl px-6 py-20">
         <div className="mx-auto max-w-2xl text-center">
-          <PreviewLabel>Coming next — Cost Intelligence</PreviewLabel>
+          <PreviewLabel>Live — Cost Intelligence</PreviewLabel>
           <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">
             Know where every AI dollar goes.
           </h2>
