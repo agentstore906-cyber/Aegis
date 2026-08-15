@@ -14,30 +14,9 @@ import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { BillingUpgradeButton } from "@/components/settings/billing-upgrade-button";
 import { BillingPortalButton } from "@/components/settings/billing-portal-button";
+import { UsageBar } from "@/components/billing/usage-bar";
 
 export const metadata: Metadata = { title: "Billing" };
-
-function UsageBar({ label, used, limit }: { label: string; used: number; limit: number | null }) {
-  const pct = limit === null ? 0 : Math.min(100, Math.round((used / limit) * 100));
-  return (
-    <div>
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-foreground">{label}</span>
-        <span className="text-muted-foreground tabular-nums">
-          {used} {limit === null ? "" : `/ ${limit}`}
-        </span>
-      </div>
-      {limit !== null && (
-        <div className="mt-1.5 h-1.5 rounded-full bg-surface-muted">
-          <div
-            className={`h-1.5 rounded-full ${pct >= 100 ? "bg-danger" : pct >= 80 ? "bg-warning" : "bg-foreground"}`}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default async function BillingPage() {
   const { organization, role } = await requireActiveOrganization();

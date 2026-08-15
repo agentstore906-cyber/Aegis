@@ -7,6 +7,8 @@ export const metadata: Metadata = {
 };
 
 export default function TrustPage() {
+  const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL;
+
   return (
     <DocPage
       eyebrow="Trust"
@@ -86,6 +88,22 @@ export default function TrustPage() {
         We are not SOC 2, ISO 27001, HIPAA, or GDPR certified. If your organization requires a formal certification or
         compliance attestation as a condition of adoption, <a href="/contact">talk to us</a> — we&rsquo;d rather tell
         you where we stand today than imply something we can&rsquo;t back up.
+      </p>
+
+      <h2>Responsible disclosure</h2>
+      <p>
+        If you believe you&rsquo;ve found a security issue in Aegis, we want to hear about it before anyone else
+        does.{" "}
+        {contactEmail ? (
+          <>
+            Email <a href={`mailto:${contactEmail}?subject=Security%20disclosure`}>{contactEmail}</a> with what you
+            found and how to reproduce it. Please don&rsquo;t test against organizations or data that aren&rsquo;t
+            your own, and give us a reasonable window to respond before any public disclosure.
+          </>
+        ) : (
+          <>A security contact isn&rsquo;t configured for this deployment yet — see <code>NEXT_PUBLIC_CONTACT_EMAIL</code> in <code>docs/deployment.md</code>.</>
+        )}{" "}
+        We don&rsquo;t currently run a paid bug bounty program — say so plainly rather than imply one exists.
       </p>
     </DocPage>
   );

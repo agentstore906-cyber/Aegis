@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { canManageMembers } from "@/lib/organizations/authorization";
 import { canViewBilling } from "@/lib/billing/authorization";
+import { getPlan } from "@/lib/billing/plans";
 import { listMembers } from "@/lib/organizations/members";
 import { listPendingInvitations } from "@/lib/organizations/invitations";
 import { listTeams } from "@/lib/teams/repository";
@@ -18,6 +19,7 @@ import { MembersTable } from "@/components/settings/members-table";
 import { InviteMemberForm } from "@/components/settings/invite-member-form";
 import { PendingInvitationsList } from "@/components/settings/pending-invitations-list";
 import { TeamsPanel } from "@/components/settings/teams-panel";
+import { UsageBar } from "@/components/billing/usage-bar";
 
 export const metadata: Metadata = { title: "Organization settings" };
 
@@ -31,6 +33,7 @@ export default async function OrganizationSettingsPage() {
     listTeams(organization.id),
     getCurrentOrigin(),
   ]);
+  const plan = getPlan(organization.plan);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -50,8 +53,9 @@ export default async function OrganizationSettingsPage() {
           <CardTitle>Members</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {plan.memberLimit !== null && <UsageBar label="Members" used={members.length} limit={plan.memberLimit} />}
           <InviteMemberForm origin={origin} />
-          <PendingInvitationsList invitations={invitations} />
+          <PendingInvitationsList invitations={invitations} origin={origin} />
           <div className="overflow-hidden rounded-lg border border-border">
             <MembersTable members={members} currentUserId={user.id} />
           </div>

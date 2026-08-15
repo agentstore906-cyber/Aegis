@@ -61,7 +61,7 @@ export default function PricingPage() {
             </p>
 
             <ButtonLink
-              href={plan.id === "enterprise" ? "/sign-up" : "/sign-up"}
+              href={plan.id === "enterprise" ? "/contact?source=enterprise" : "/sign-up"}
               variant={plan.featured ? "secondary" : "primary"}
               className={cn(
                 "mt-6 w-full",

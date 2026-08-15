@@ -13,7 +13,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ---------------------------------------------------------------------------
@@ -44,6 +43,8 @@ model User {
   resolvedSecurityAlerts     SecurityAlert[]          @relation("SecurityAlertResolvedBy")
   createdWebhookEndpoints    WebhookEndpoint[]
   sentInvitations            OrganizationInvitation[]
+  featureRequests            FeatureRequest[]
+  featureRequestVotes        FeatureRequestVote[]
 
   @@map("users")
 }
@@ -142,6 +143,7 @@ model Organization {
   teams             Team[]
   invitations       OrganizationInvitation[]
   webhookEndpoints  WebhookEndpoint[]
+  featureRequests   FeatureRequest[]
 
   @@map("organizations")
 }
@@ -868,4 +870,115 @@ model StripeWebhookEvent {
   processedAt DateTime @default(now())
 
   @@map("stripe_webhook_events")
+}
+
+// ---------------------------------------------------------------------------
+// Leads — Phase 8. Not tenant-owned (no Organization exists yet at capture
+// time) and deliberately not a full CRM: one table, no pipeline automation,
+// no email sequencing engine. `status` is hand-updated by whoever reviews
+// /admin/leads. See lib/leads/ and docs/gtm/weekly-loop.md.
+// ---------------------------------------------------------------------------
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  DEMO_SCHEDULED
+  TRIAL
+  CUSTOMER
+  DISQUALIFIED
+}
+
+enum LeadSource {
+  CONTACT
+  DEMO_REQUEST
+  ENTERPRISE
+}
+
+model Lead {
+  id      String @id @default(cuid())
+  name    String
+  email   String
+  company String
+  role    String
+
+  // Qualification data — see docs/customer-research/interview.md for why
+  // these specific questions. Free text, not enums: the ICP isn't settled
+  // enough yet to force answers into a fixed taxonomy (see AGENTS.md
+  // Phase 8 principle #85 — build from real customer data, not upfront).
+  agentCount       String?
+  aiStack          String?
+  primaryChallenge String?
+  message          String?
+
+  status LeadStatus @default(NEW)
+  source LeadSource @default(CONTACT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("leads")
+}
+
+// ---------------------------------------------------------------------------
+// Feature requests — Phase 10. Org-scoped, not a cross-tenant public
+// roadmap: members submit and vote on requests for their own organization.
+// Status (REVIEWING/PLANNED/...) is triaged by platform staff via /admin —
+// same shape as Lead's admin-side triage, not something an org's own
+// members change about their own requests. `category` is free text, same
+// "taxonomy not settled yet" reasoning as Lead's qualification fields.
+//
+// Vote count is deliberately NOT a denormalized integer on FeatureRequest —
+// it's derived from FeatureRequestVote at query time (`_count`), which
+// can't drift out of sync with the actual vote rows the way a manually
+// incremented/decremented counter could.
+// ---------------------------------------------------------------------------
+
+enum FeatureRequestStatus {
+  REQUESTED
+  REVIEWING
+  PLANNED
+  IN_PROGRESS
+  SHIPPED
+  DECLINED
+}
+
+model FeatureRequest {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+
+  title       String
+  description String?              @db.Text
+  category    String?
+  status      FeatureRequestStatus @default(REQUESTED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  submittedBy  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  votes        FeatureRequestVote[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@map("feature_requests")
+}
+
+// One vote per (request, user) — the unique constraint is what makes a
+// vote a toggle rather than something a member can stack.
+model FeatureRequestVote {
+  id               String @id @default(cuid())
+  featureRequestId String
+  userId           String
+
+  createdAt DateTime @default(now())
+
+  featureRequest FeatureRequest @relation(fields: [featureRequestId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([featureRequestId, userId])
+  @@map("feature_request_votes")
 }

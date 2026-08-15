@@ -28,6 +28,15 @@ later. Copy `.env.example` and fill in real values (never commit them).
 | `AUTH_SECRET` | Signs session JWTs — `openssl rand -base64 32` |
 | `AUTH_URL` | Public base URL of the deployment (e.g. `https://app.example.com`) — required in production, auto-detected in dev |
 
+**Optional — platform admin.** Comma-separated allowlist of emails allowed
+into `/admin` (internal-only, not an organization role — see
+`lib/admin/authorization.ts`). Unset means nobody can reach it, not
+"everyone can" — fails closed.
+
+| Variable | Purpose |
+|---|---|
+| `PLATFORM_ADMIN_EMAILS` | Comma-separated emails allowed into `/admin` |
+
 **Optional — billing (Stripe).** The app runs fully without these;
 `/settings/billing` shows "not configured" and every org stays on Free.
 See [§6](#6-stripe-webhook-configuration).

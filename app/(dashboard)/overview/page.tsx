@@ -9,6 +9,7 @@ import { getRecentActivity, getOrgSpendSummary, getRiskEventCount } from "@/lib/
 import { getPolicyDashboardStats } from "@/lib/policies/repository";
 import { getApprovalStats } from "@/lib/approvals/repository";
 import { getSecurityStats } from "@/lib/security/repository";
+import { getOnboardingStatus } from "@/lib/onboarding/status";
 import { formatCurrency, formatDateTime, formatRelativeTime } from "@/lib/utils";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -18,18 +19,23 @@ import { AgentStatusBadge, RiskBadge } from "@/components/dashboard/status-badge
 import { ActivityRow } from "@/components/activity/activity-row";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ButtonLink } from "@/components/ui/button";
+import { OnboardingChecklist } from "@/components/dashboard/onboarding-checklist";
 
 export const metadata: Metadata = { title: "Overview" };
 
 export default async function OverviewPage() {
   const { organization, role } = await requireActiveOrganization();
 
-  const stats = await getAgentStats(organization.id);
+  const [stats, onboardingStatus] = await Promise.all([
+    getAgentStats(organization.id),
+    getOnboardingStatus(organization.id),
+  ]);
 
   if (stats.total === 0) {
     return (
       <div>
         <PageHeader title="Overview" description={`Welcome to ${organization.name}.`} />
+        <OnboardingChecklist status={onboardingStatus} />
         <div className="py-6">
           <EmptyState
             icon={Bot}
@@ -99,6 +105,8 @@ export default async function OverviewPage() {
         title="Overview"
         description={`What's happening across ${organization.name}'s agents right now.`}
       />
+
+      <OnboardingChecklist status={onboardingStatus} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard label="Agents" value={String(stats.total)} icon={Bot} />

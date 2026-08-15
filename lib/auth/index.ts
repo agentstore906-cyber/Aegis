@@ -8,7 +8,19 @@ import { verifyPassword } from "@/lib/auth/password";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
-  session: { strategy: "jwt" },
+  // 30-day JWT session, explicit rather than relying on NextAuth's implicit
+  // default — same effective value, just auditable in code. `cookies` below
+  // likewise codifies (doesn't change) NextAuth's own secure-cookie defaults.
+  session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
+  cookies: {
+    sessionToken: {
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
+  },
   pages: {
     signIn: "/sign-in",
   },

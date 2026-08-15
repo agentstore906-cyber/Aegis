@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 
 import { auth } from "@/lib/auth";
 
-const PROTECTED_PREFIXES = ["/overview", "/agents", "/activity", "/onboarding", "/settings"];
+const PROTECTED_PREFIXES = ["/overview", "/agents", "/activity", "/onboarding", "/settings", "/admin"];
 const AUTH_PAGES = ["/sign-in", "/sign-up"];
 
 export async function proxy(request: NextRequest) {
@@ -34,6 +34,7 @@ export const config = {
     "/activity/:path*",
     "/onboarding/:path*",
     "/settings/:path*",
+    "/admin/:path*",
     "/sign-in",
     "/sign-up",
   ],

@@ -93,7 +93,7 @@ export const PRICING_PLANS: PricingPlan[] = [
     name: PLANS.enterprise.name,
     price: price("enterprise"),
     description: "For organizations with custom security and compliance needs.",
-    cta: "Contact us",
+    cta: "Talk to an AI infrastructure specialist",
     features: [
       "Custom limits",
       "Dedicated support",

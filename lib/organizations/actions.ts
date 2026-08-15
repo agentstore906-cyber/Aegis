@@ -269,11 +269,44 @@ export async function inviteMemberAction(
 }
 
 export async function revokeInvitationAction(id: string) {
-  const { organization, role } = await requireActiveOrganization();
+  const { organization, user, role } = await requireActiveOrganization();
   if (!canManageMembers(role)) throw new Error("You don't have permission to manage invitations.");
 
-  await invitationsRepo.revokeInvitation(organization.id, id);
+  const revoked = await invitationsRepo.revokeInvitation(organization.id, id);
+  if (revoked) {
+    await recordAuditEvent(prisma, {
+      organizationId: organization.id,
+      actorType: "USER",
+      actorUserId: user.id,
+      eventType: AUDIT_EVENT_TYPES.MEMBER_INVITATION_REVOKED,
+      entityType: "OrganizationInvitation",
+      entityId: id,
+      action: "member.invitation.revoke",
+    });
+  }
   revalidatePath("/settings/organization");
+}
+
+export async function resendInvitationAction(id: string): Promise<{ inviteUrl?: string }> {
+  const { organization, user, role } = await requireActiveOrganization();
+  if (!canManageMembers(role)) throw new Error("You don't have permission to manage invitations.");
+
+  const invitation = await invitationsRepo.resendInvitation(organization.id, id);
+  if (invitation) {
+    await recordAuditEvent(prisma, {
+      organizationId: organization.id,
+      actorType: "USER",
+      actorUserId: user.id,
+      eventType: AUDIT_EVENT_TYPES.MEMBER_INVITATION_RESENT,
+      entityType: "OrganizationInvitation",
+      entityId: invitation.id,
+      action: "member.invitation.resend",
+      metadata: { email: invitation.email },
+    });
+  }
+
+  revalidatePath("/settings/organization");
+  return invitation ? { inviteUrl: `/invitations/${invitation.token}` } : {};
 }
 
 export type AcceptInvitationState = { error?: string };

@@ -11,6 +11,7 @@ import {
   Terminal,
   Settings,
   Webhook,
+  MessageSquarePlus,
 } from "lucide-react";
 
 export type NavItem = {
@@ -31,5 +32,6 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Audit", href: "/audit", icon: ClipboardList, status: "active" },
   { label: "Integrations", href: "/integrations", icon: Webhook, status: "active" },
   { label: "Developers", href: "/developers", icon: Terminal, status: "active" },
+  { label: "Feedback", href: "/feedback", icon: MessageSquarePlus, status: "active" },
   { label: "Settings", href: "/settings/organization", icon: Settings, status: "active" },
 ];

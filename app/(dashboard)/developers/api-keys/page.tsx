@@ -4,12 +4,15 @@ import { KeyRound } from "lucide-react";
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { listApiKeys } from "@/lib/api-keys/repository";
 import { canManageApiKeys } from "@/lib/api-keys/authorization";
+import { getPlan } from "@/lib/billing/plans";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ButtonLink } from "@/components/ui/button";
 import { CreateApiKeyForm } from "@/components/api-keys/create-api-key-form";
 import { ApiKeysTable } from "@/components/api-keys/api-keys-table";
 import { EmptyState } from "@/components/ui/empty-state";
+import { UsageBar } from "@/components/billing/usage-bar";
+import { Alert } from "@/components/ui/alert";
 
 export const metadata: Metadata = { title: "API keys" };
 
@@ -18,6 +21,9 @@ export default async function ApiKeysPage() {
   const canManage = canManageApiKeys(role);
 
   const apiKeys = await listApiKeys(organization.id);
+  const activeKeyCount = apiKeys.filter((key) => !key.revokedAt).length;
+  const plan = getPlan(organization.plan);
+  const atLimit = plan.apiKeyLimit !== null && activeKeyCount >= plan.apiKeyLimit;
 
   return (
     <div>
@@ -30,6 +36,22 @@ export default async function ApiKeysPage() {
           </ButtonLink>
         }
       />
+
+      {canManage && plan.apiKeyLimit !== null && (
+        <div className="mb-4">
+          {atLimit ? (
+            <Alert tone="warning">
+              You&rsquo;ve used all {plan.apiKeyLimit} active API keys on the {plan.name} plan.{" "}
+              <a href="/settings/billing" className="underline">
+                Upgrade
+              </a>{" "}
+              for more.
+            </Alert>
+          ) : (
+            <UsageBar label="Active API keys" used={activeKeyCount} limit={plan.apiKeyLimit} />
+          )}
+        </div>
+      )}
 
       {canManage && (
         <div className="mb-6">

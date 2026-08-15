@@ -103,11 +103,13 @@ export async function getAgentsNeedingAttention(organizationId: string, limit = 
   });
 }
 
+/** Used to populate agent-filter dropdowns — bounded so an org with an unusual number of agents can't force an unbounded scan. */
 export async function listAllAgentsForOrg(organizationId: string) {
   return prisma.agent.findMany({
     where: { organizationId },
     orderBy: { name: "asc" },
     select: { id: true, name: true, slug: true },
+    take: 200,
   });
 }
 

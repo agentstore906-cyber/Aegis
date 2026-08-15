@@ -19,7 +19,13 @@ export async function listPendingInvitations(organizationId: string) {
   });
 }
 
-/** Only an existing OWNER can invite someone as OWNER — same escalation rule as changeMemberRole. */
+/**
+ * Only an existing OWNER can invite someone as OWNER — same escalation rule
+ * as changeMemberRole. If a pending (unaccepted, unexpired) invitation to
+ * this email already exists, reissues it (fresh token + expiry) instead of
+ * creating a second live invitation row — a repeated invite is the same
+ * intent as a resend, not a genuinely new invitation.
+ */
 export async function createInvitation(
   organizationId: string,
   invitedByUserId: string,
@@ -31,16 +37,38 @@ export async function createInvitation(
     throw new PrivilegeEscalationError();
   }
 
+  const normalizedEmail = email.toLowerCase();
+  const existing = await prisma.organizationInvitation.findFirst({
+    where: { organizationId, email: normalizedEmail, acceptedAt: null },
+  });
+
+  if (existing) {
+    return prisma.organizationInvitation.update({
+      where: { id: existing.id },
+      data: { role, token: generateInvitationToken(), expiresAt: new Date(Date.now() + INVITATION_TTL_MS) },
+    });
+  }
+
   return prisma.organizationInvitation.create({
     data: {
       organizationId,
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       role,
       token: generateInvitationToken(),
       invitedByUserId,
       expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
     },
   });
+}
+
+/** Reissues an existing pending invitation with a fresh token/expiry — the old shared link stops working once resent. Returns null (not a throw) if the invitation is already gone/accepted, matching revokeInvitation's tolerant shape — the caller's UI has no row left to retry against either way. */
+export async function resendInvitation(organizationId: string, id: string) {
+  const result = await prisma.organizationInvitation.updateMany({
+    where: { id, organizationId, acceptedAt: null },
+    data: { token: generateInvitationToken(), expiresAt: new Date(Date.now() + INVITATION_TTL_MS) },
+  });
+  if (result.count === 0) return null;
+  return prisma.organizationInvitation.findUniqueOrThrow({ where: { id } });
 }
 
 export async function revokeInvitation(organizationId: string, id: string) {

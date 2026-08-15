@@ -61,7 +61,28 @@ trail by trace id.
 - [x] Pricing (reads live from the same config billing enforces)
 - [x] Demo (`/demo` — interactive, clearly labeled sample data)
 - [x] Documentation (`/docs` + subpages)
-- [x] Contact (`/contact` — degrades honestly if unconfigured)
+- [x] Contact (`/contact` — real lead capture: validated, honeypot +
+      rate-limited + per-email throttled, persisted to a `Lead` row, not
+      just a mailto link)
+- [x] Enterprise CTA (`/pricing`'s Enterprise plan routes to
+      `/contact?source=enterprise`, not a generic "Contact us")
+- [x] Responsible disclosure (`/trust`'s "Responsible disclosure" section
+      — degrades honestly if `NEXT_PUBLIC_CONTACT_EMAIL` isn't set)
+
+## Sales & GTM (Phase 8)
+
+- [x] Lead dashboard (`/admin/leads` — platform-admin-only, gated by an
+      env allowlist (`PLATFORM_ADMIN_EMAILS`), 404s for everyone else;
+      list/filter/status-update)
+- [x] Sales collateral (`docs/sales/*.md` — one-pager, demo script,
+      objections, outreach templates, target-account template)
+- [x] Customer research templates (`docs/customer-research/*.md`)
+- [x] GTM playbook (`docs/gtm/*.md` — weekly loop, content strategy,
+      founder-led sales, competitive-research structure)
+- [x] Security questionnaire (`docs/security/questionnaire.md`)
+- [ ] Real target accounts, real customer interviews, real feedback log
+      entries — all templates above are deliberately unpopulated; see
+      `docs/customer-feedback.md` and `AGENTS.md` §85
 
 ## Operations
 

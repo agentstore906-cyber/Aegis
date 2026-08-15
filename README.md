@@ -40,11 +40,14 @@ outbound webhooks). See [Roadmap](#roadmap) for what's next.
 
 ```
 app/
-  (marketing)/        Public site: home, pricing
+  (marketing)/        Public site: home, pricing, contact (lead capture),
+                        trust (incl. responsible disclosure), docs
   (auth)/              Sign in, sign up
   (dashboard)/          Authenticated app: overview, agents, activity,
                           policies, approvals, audit, developers, security,
                           costs, settings/organization, integrations
+  admin/                Platform-internal only (see lib/admin) —
+                          leads/ (Phase 8 lead dashboard)
   invitations/[token]/    Accept-invitation page (outside the dashboard group —
                           reachable by a signed-in OR signed-out user)
   onboarding/            Create-organization flow
@@ -135,6 +138,14 @@ lib/
     entitlements.ts          canCreateAgent/canInviteMember/... — server-enforced, not UI-only
     stripe.ts                 Lazy client; null (not a throw) when unconfigured
     actions.ts                 Checkout + billing-portal Server Actions
+  leads/               Phase 8 — /contact's lead capture (not tenant-owned, no Organization yet)
+    service.ts              submitLead() — honeypot, rate limit, per-email throttle, all pure/testable
+    repository.ts             Prisma access
+    actions.ts                 Server Action wiring (IP resolution via next/headers lives here, not service.ts)
+    __tests__/                 Real-DB integration tests
+  admin/               Phase 8 — platform-wide admin, distinct from any MemberRole
+    authorization.ts        isPlatformAdmin() — env allowlist (PLATFORM_ADMIN_EMAILS), not a DB flag
+    __tests__/                 Unit tests (mocked env, no DB)
   validation/           Zod schemas, shared across forms, Server Actions, and the public API
   env.ts                Startup env validation — fails fast on a missing required var
   db.ts, utils.ts, pricing.ts, dashboard-nav.ts, request-origin.ts
@@ -161,6 +172,14 @@ docs/
   webhooks.md               SSRF protections, signing, delivery-log limitations
   retention.md              What's configurable today vs. actually enforced (nothing yet)
   deployment.md             Env vars, migrations, Stripe webhook setup, health checks
+  launch-checklist.md       Honest checked/unchecked state of every launch surface
+  customer-feedback.md      Deliberately empty log template for real customer feedback
+  security/questionnaire.md Prepared, factual answers for a customer security review
+  sales/                    Phase 8 — one-pager, demo script, objections, outreach,
+                            target-account-template (deliberately unpopulated)
+  customer-research/        Phase 8 — interview script, feature-prioritization framework
+  gtm/                      Phase 8 — weekly-loop, content-strategy, founder-sales,
+                            competitive-research (deliberately unpopulated)
 ```
 
 ### Multi-tenancy & security
@@ -453,6 +472,7 @@ already links it) — you don't need to publish it to try it locally.
 | `DATABASE_URL`    | Yes      | PostgreSQL connection string                |
 | `AUTH_SECRET`     | Yes      | Signs session JWTs — must be a random secret |
 | `AUTH_URL`        | Prod only | Public base URL of the deployment           |
+| `PLATFORM_ADMIN_EMAILS` | Optional | Comma-separated allowlist for `/admin/leads` (Phase 8) — unset means nobody can reach it |
 
 None of the above are new in Phase 4 — the public API needs no server-side
 configuration beyond what already exists (API keys are created and stored
@@ -562,9 +582,25 @@ existing flow, or fabricate metrics/integrations/compliance claims — see
 `docs/launch-checklist.md` and `docs/smoke-test.md` for the honest,
 checkable state of what's ready.
 
-**What's next is customer-driven, not roadmap-driven.** Per Phase 7's
-explicit closing principle, the next step is real customer validation
-(5–10 companies, real usage, real feedback — see
+**Phase 8 — go-to-market infrastructure** did not touch the product
+surfaces above. It built what's needed to acquire and onboard real
+customers: a real lead-capture flow at `/contact` (validated, honeypot +
+rate-limited + per-email-throttled, persisted to a `Lead` model, not a
+mailto link) with an Enterprise-specific CTA
+(`/pricing` → `/contact?source=enterprise`), a platform-admin-only lead
+dashboard at `/admin/leads` (gated by an env allowlist, distinct from any
+`MemberRole` — see `lib/admin/authorization.ts`), a responsible-disclosure
+section on `/trust`, and a full sales/GTM documentation set
+(`docs/sales/`, `docs/customer-research/`, `docs/gtm/`,
+`docs/security/questionnaire.md`) — grounded in what the product actually
+does today, with account/testimonial/case-study templates left
+deliberately unpopulated rather than filled with invented data. See
+`AGENTS.md` for the full Phase 8 brief and its closing principle: after
+this, the priority is real customer conversations, not another feature
+phase.
+
+**What's next is customer-driven, not roadmap-driven.** The next step is
+real customer validation (5–10 companies, real usage, real feedback — see
 `docs/customer-feedback.md`) before deciding what to build next, rather
 than continuing to add features speculatively. The concrete technical
 items already identified as real gaps, to prioritize based on what

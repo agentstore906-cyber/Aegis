@@ -1,9 +1,15 @@
 import { defineConfig } from "vitest/config";
+import { loadEnv } from "vite";
 import path from "node:path";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   test: {
     include: ["lib/**/*.test.ts", "app/**/*.test.ts"],
+    // Explicit, not incidental: test workers need DATABASE_URL/AUTH_SECRET
+    // (lib/env.ts validates both eagerly on import) and now also feed
+    // lib/db.ts's @prisma/adapter-pg connection string. `""` as the third
+    // arg loads every var from .env, not just VITE_-prefixed ones.
+    env: loadEnv(mode, process.cwd(), ""),
   },
   resolve: {
     alias: {
@@ -15,4 +21,4 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname),
     },
   },
-});
+}));

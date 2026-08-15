@@ -15,6 +15,10 @@ import { z } from "zod";
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required (PostgreSQL connection string)."),
   AUTH_SECRET: z.string().min(1, "AUTH_SECRET is required (run `openssl rand -base64 32`)."),
+  // Comma-separated allowlist of emails allowed into /admin/leads (internal-only,
+  // not an organization role — see lib/admin/authorization.ts). Unset means nobody
+  // can reach it, not "everyone can."
+  PLATFORM_ADMIN_EMAILS: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

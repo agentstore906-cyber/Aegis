@@ -1,3 +1,4 @@
+import "dotenv/config";
 import {
   PrismaClient,
   type ActivityStatus,
@@ -7,8 +8,11 @@ import {
   type PolicyDecision,
   type RiskLevel,
 } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
+
+import { parseDatabaseUrl } from "../lib/db-connection";
 
 // The real policy engine (lib/policies/matcher.ts, resolver.ts) is reused
 // below to generate evaluation history — these seeded decisions are
@@ -24,7 +28,8 @@ import type { PolicyEvaluationInput } from "../lib/policies/types";
 // directly here rather than hand-faked. See buildSecurityAlertScenarios().
 import { detectCostSpike, detectNewSensitiveAction } from "../lib/security/detectors";
 
-const prisma = new PrismaClient();
+const adapter = new PrismaPg(parseDatabaseUrl(process.env.DATABASE_URL!));
+const prisma = new PrismaClient({ adapter });
 
 const COMPANIES = [
   "Acme Inc.",

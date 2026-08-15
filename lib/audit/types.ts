@@ -34,6 +34,8 @@ export const AUDIT_EVENT_TYPES = {
   WEBHOOK_ENDPOINT_CREATED: "webhook_endpoint.created",
   WEBHOOK_ENDPOINT_DELETED: "webhook_endpoint.deleted",
   MEMBER_INVITED: "member.invited",
+  MEMBER_INVITATION_RESENT: "member.invitation_resent",
+  MEMBER_INVITATION_REVOKED: "member.invitation_revoked",
   MEMBER_ROLE_CHANGED: "member.role_changed",
   MEMBER_REMOVED: "member.removed",
   ORGANIZATION_SETTINGS_UPDATED: "organization.settings_updated",

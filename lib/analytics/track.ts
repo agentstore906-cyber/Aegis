@@ -12,7 +12,9 @@ export type AnalyticsEvent =
   | "approval_created"
   | "approval_resolved"
   | "first_event_received"
-  | "subscription_started";
+  | "subscription_started"
+  | "demo_requested"
+  | "feature_request_submitted";
 
 type AnalyticsProperties = Record<string, string | number | boolean | undefined>;
 
