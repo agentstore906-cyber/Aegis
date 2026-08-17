@@ -202,6 +202,10 @@ export async function listApprovalsForAgent(organizationId: string, agentId: str
   });
 }
 
+export async function getOrgApprovalCount(organizationId: string) {
+  return prisma.approvalRequest.count({ where: { organizationId } });
+}
+
 export async function getApprovalStats(organizationId: string) {
   const [pending, highRiskPending, recentRejected] = await Promise.all([
     prisma.approvalRequest.count({ where: { organizationId, status: "PENDING" } }),

@@ -8,9 +8,16 @@ import path from "node:path";
 // higher-value protection here (this app never uses
 // dangerouslySetInnerHTML, so the inline-script injection surface CSP
 // would otherwise close is already small).
+//
+// 'unsafe-eval' is added to script-src in development only: React/Next dev
+// mode (and Turbopack HMR) use eval() to reconstruct server error stacks in
+// the browser. Neither React nor Next.js use eval() in production, so it's
+// omitted there.
+const isDev = process.env.NODE_ENV === "development";
+
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self' data:",

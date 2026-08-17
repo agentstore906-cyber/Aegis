@@ -105,6 +105,10 @@ export async function getAgentActivityStatusCounts(organizationId: string, agent
   return { blocked, approvalRequired };
 }
 
+export async function getOrgEventCount(organizationId: string) {
+  return prisma.activityEvent.count({ where: { organizationId } });
+}
+
 export async function getOrgSpendSummary(organizationId: string) {
   const startOfMonth = new Date();
   startOfMonth.setDate(1);

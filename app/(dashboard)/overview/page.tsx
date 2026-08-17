@@ -5,9 +5,14 @@ import Link from "next/link";
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { getAgentStats, getAgentsNeedingAttention } from "@/lib/agents/queries";
 import { canManageAgents } from "@/lib/agents/authorization";
-import { getRecentActivity, getOrgSpendSummary, getRiskEventCount } from "@/lib/activity/queries";
+import {
+  getRecentActivity,
+  getOrgSpendSummary,
+  getRiskEventCount,
+  getOrgEventCount,
+} from "@/lib/activity/queries";
 import { getPolicyDashboardStats } from "@/lib/policies/repository";
-import { getApprovalStats } from "@/lib/approvals/repository";
+import { getApprovalStats, getOrgApprovalCount } from "@/lib/approvals/repository";
 import { getSecurityStats } from "@/lib/security/repository";
 import { getOnboardingStatus } from "@/lib/onboarding/status";
 import { formatCurrency, formatDateTime, formatRelativeTime } from "@/lib/utils";
@@ -19,9 +24,16 @@ import { AgentStatusBadge, RiskBadge } from "@/components/dashboard/status-badge
 import { ActivityRow } from "@/components/activity/activity-row";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ButtonLink } from "@/components/ui/button";
-import { OnboardingChecklist } from "@/components/dashboard/onboarding-checklist";
+import { OnboardingChecklist, type OnboardingStepConfig } from "@/components/dashboard/onboarding-checklist";
 
 export const metadata: Metadata = { title: "Overview" };
+
+const NEW_ORG_STEPS: OnboardingStepConfig[] = [
+  { key: "agentConnected", label: "Connect your first agent", href: "/agents/new" },
+  { key: "firstEventReceived", label: "Send your first event", href: "/developers/quickstart" },
+  { key: "firstPolicyCreated", label: "Create your first policy", href: "/policies/new" },
+  { key: "approvalWorkflowUsed", label: "Test an approval", href: "/approvals" },
+];
 
 export default async function OverviewPage() {
   const { organization, role } = await requireActiveOrganization();
@@ -32,10 +44,26 @@ export default async function OverviewPage() {
   ]);
 
   if (stats.total === 0) {
+    const [eventCount, approvalCount, spendCents] = await Promise.all([
+      getOrgEventCount(organization.id),
+      getOrgApprovalCount(organization.id),
+      getOrgSpendSummary(organization.id),
+    ]);
+
     return (
       <div>
-        <PageHeader title="Overview" description={`Welcome to ${organization.name}.`} />
-        <OnboardingChecklist status={onboardingStatus} />
+        <div className="mb-8 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Welcome to Aegis</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Your AI workforce starts here.</p>
+        </div>
+
+        <div className="mx-auto grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatCard label="Agents" value={String(stats.total)} icon={Bot} />
+          <StatCard label="Events" value={String(eventCount)} icon={Activity} />
+          <StatCard label="Approvals" value={String(approvalCount)} icon={CheckCircle2} />
+          <StatCard label="AI Spend" value={formatCurrency(spendCents)} icon={DollarSign} />
+        </div>
+
         <div className="py-6">
           <EmptyState
             icon={Bot}
@@ -46,7 +74,7 @@ export default async function OverviewPage() {
                 {canManageAgents(role) && (
                   <ButtonLink href="/agents/new">
                     <Plus className="size-4" aria-hidden="true" />
-                    Connect Agent
+                    Connect your first agent
                   </ButtonLink>
                 )}
                 <ButtonLink href="/demo" variant="secondary">
@@ -56,6 +84,8 @@ export default async function OverviewPage() {
             }
           />
         </div>
+
+        <OnboardingChecklist status={onboardingStatus} steps={NEW_ORG_STEPS} title="Onboarding steps" />
       </div>
     );
   }
