@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth/session";
-import { requireActiveOrganization, ACTIVE_ORG_COOKIE } from "@/lib/organizations/queries";
+import { requireActiveOrganization, ACTIVE_ORG_COOKIE, uniqueSlugFor } from "@/lib/organizations/queries";
 import { canManageMembers } from "@/lib/organizations/authorization";
 import * as membersRepo from "@/lib/organizations/members";
 import * as invitationsRepo from "@/lib/organizations/invitations";
@@ -24,7 +24,6 @@ import {
   retentionSettingsSchema,
   organizationGeneralSchema,
 } from "@/lib/validation/organization";
-import { slugify } from "@/lib/utils";
 import { recordAuditEvent } from "@/lib/audit/service";
 import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
 import { trackEvent } from "@/lib/analytics/track";
@@ -33,19 +32,6 @@ import { canInviteMember } from "@/lib/billing/entitlements";
 export type CreateOrganizationState = {
   error?: string;
 };
-
-async function uniqueSlugFor(name: string): Promise<string> {
-  const base = slugify(name);
-  let candidate = base;
-  let suffix = 1;
-
-  while (await prisma.organization.findUnique({ where: { slug: candidate } })) {
-    suffix += 1;
-    candidate = `${base}-${suffix}`;
-  }
-
-  return candidate;
-}
 
 export async function createOrganizationAction(
   _prevState: CreateOrganizationState,

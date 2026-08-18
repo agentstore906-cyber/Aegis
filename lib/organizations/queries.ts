@@ -3,10 +3,31 @@ import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { prisma } from "@/lib/db";
+import { prisma, type PrismaOrTx } from "@/lib/db";
 import { requireUser } from "@/lib/auth/session";
+import { slugify } from "@/lib/utils";
 
 export const ACTIVE_ORG_COOKIE = "aegis_org";
+
+/**
+ * Shared by createOrganizationAction and signUpAction so slug generation
+ * can't drift between the two entry points. Accepts a transaction client so
+ * callers that need the slug lookup and the org insert to be atomic (e.g.
+ * signup, where the org must never exist without its owner membership) can
+ * run it inside their own `$transaction`.
+ */
+export async function uniqueSlugFor(name: string, client: PrismaOrTx = prisma): Promise<string> {
+  const base = slugify(name);
+  let candidate = base;
+  let suffix = 1;
+
+  while (await client.organization.findUnique({ where: { slug: candidate } })) {
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
+  }
+
+  return candidate;
+}
 
 export async function getUserMemberships(userId: string) {
   return prisma.organizationMember.findMany({
