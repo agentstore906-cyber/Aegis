@@ -38,7 +38,7 @@ export default async function OnboardingConnectPage() {
               Register a real agent and get an API key so it can start reporting activity.
             </p>
             <span className="mt-3 flex items-center gap-1 text-xs font-medium text-brand">
-              Create agent
+              Connect agent
               <ArrowRight className="size-3" aria-hidden="true" />
             </span>
           </Link>

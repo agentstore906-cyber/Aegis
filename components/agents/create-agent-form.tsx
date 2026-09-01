@@ -106,7 +106,7 @@ export function CreateAgentForm({ teams = [] }: { teams?: { id: string; name: st
 
       <div className="flex items-center gap-3 border-t border-border pt-5">
         <Button type="submit" disabled={pending}>
-          {pending ? "Creating agent…" : "Create agent"}
+          {pending ? "Connecting agent…" : "Connect agent"}
         </Button>
         <ButtonLink href="/agents" variant="ghost">
           Cancel

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Pencil, Wrench, ShieldCheck, DollarSign, Plus, Activity as ActivityIcon, CheckCircle2 } from "lucide-react";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
+import { prisma } from "@/lib/db";
+import { getCurrentOrigin } from "@/lib/request-origin";
 import { getAgentBySlug } from "@/lib/agents/queries";
 import { getAgentActivity, getAgentActivityStatusCounts } from "@/lib/activity/queries";
 import { formatCurrency, formatDateTime, formatRelativeTime } from "@/lib/utils";
@@ -29,6 +31,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PermissionsTable } from "@/components/policies/permissions-table";
 import { AgentPoliciesList } from "@/components/policies/agent-policies-list";
+import { AgentConnectPanel } from "@/components/agents/agent-connect-panel";
 export const metadata: Metadata = { title: "Agent" };
 
 export default async function AgentDetailPage({
@@ -70,6 +73,16 @@ export default async function AgentDetailPage({
 
   const costPerSuccessfulTaskCents = tab === "costs" ? await getCostPerSuccessfulTaskForAgent(organization.id, agent.id) : null;
 
+  // The agent exists but has never reported activity — show a guided
+  // "send your first event" panel instead of a bare empty state.
+  const showConnectPanel = tab === "overview" && activity.length === 0;
+  const [connectBaseUrl, activeApiKeyCount] = showConnectPanel
+    ? await Promise.all([
+        getCurrentOrigin(),
+        prisma.apiKey.count({ where: { organizationId: organization.id, revokedAt: null } }),
+      ])
+    : ["", 0];
+
   return (
     <div>
       <PageHeader
@@ -100,6 +113,17 @@ export default async function AgentDetailPage({
       </div>
 
       <AgentTabs slug={agent.slug} active={tab} />
+
+      {tab === "overview" && showConnectPanel && (
+        <div className="mb-4">
+          <AgentConnectPanel
+            agentSlug={agent.slug}
+            agentName={agent.name}
+            baseUrl={connectBaseUrl}
+            hasActiveApiKey={activeApiKeyCount > 0}
+          />
+        </div>
+      )}
 
       {tab === "overview" && (
         <div className="grid gap-4 lg:grid-cols-3">

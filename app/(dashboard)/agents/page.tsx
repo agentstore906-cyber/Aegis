@@ -55,7 +55,7 @@ export default async function AgentsPage({
           canManage && (
             <ButtonLink href="/agents/new">
               <Plus className="size-4" aria-hidden="true" />
-              Create agent
+              Connect agent
             </ButtonLink>
           )
         }

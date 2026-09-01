@@ -31,7 +31,7 @@ export async function createAgentAction(
 ): Promise<CreateAgentState> {
   const { organization, user, role } = await requireActiveOrganization();
   if (!canManageAgents(role)) {
-    return { error: "You don't have permission to create agents." };
+    return { error: "You don't have permission to connect agents." };
   }
 
   const agentCount = await prisma.agent.count({ where: { organizationId: organization.id } });

@@ -13,7 +13,7 @@ import { CreateAgentForm } from "@/components/agents/create-agent-form";
 import { UsageBar } from "@/components/billing/usage-bar";
 import { Alert } from "@/components/ui/alert";
 
-export const metadata: Metadata = { title: "Create agent" };
+export const metadata: Metadata = { title: "Connect agent" };
 
 export default async function NewAgentPage() {
   const { organization, role } = await requireActiveOrganization();
@@ -31,8 +31,8 @@ export default async function NewAgentPage() {
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
-        title="Create agent"
-        description="Register a new agent so Aegis can start tracking its activity."
+        title="Connect agent"
+        description="Register an agent you already run so Aegis can start tracking its activity."
       />
       {plan.agentLimit !== null && (
         <div className="mb-4">
