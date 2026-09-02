@@ -50,7 +50,7 @@ const ROLE_CAPABILITIES: Record<MemberRole, Capability[]> = {
     "view_audit",
   ],
   // FINANCE can see billing status (it's financial data, like costs) but
-  // cannot check out, change plans, or open the Stripe portal — only
+  // cannot check out, change plans, or open the Lemon Squeezy portal — only
   // OWNER/ADMIN hold manage_billing, matching "Engineer cannot modify
   // billing" / "only appropriate roles can access billing."
   FINANCE: ["view_costs", "view_audit", "view_billing"],

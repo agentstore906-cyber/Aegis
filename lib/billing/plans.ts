@@ -25,12 +25,12 @@ export interface PlanConfig {
   auditExport: boolean;
   webhooks: boolean;
   /**
-   * Resolved from env at import time so a plan with no configured Stripe
-   * price simply can't be checked out (the checkout action fails with a
-   * clear "not configured" error rather than sending an empty price to
-   * Stripe) — see lib/billing/actions.ts.
+   * Lemon Squeezy variant id, resolved from env at import time so a plan
+   * with no configured variant simply can't be checked out (the checkout
+   * action fails with a clear "not available for self-serve" error rather
+   * than sending an empty id to Lemon Squeezy) — see lib/billing/actions.ts.
    */
-  stripePriceId: string | null;
+  lemonSqueezyVariantId: string | null;
 }
 
 export const PLANS: Record<PlanId, PlanConfig> = {
@@ -45,46 +45,46 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     advancedPolicies: false,
     auditExport: false,
     webhooks: false,
-    stripePriceId: null,
+    lemonSqueezyVariantId: null,
   },
   startup: {
     id: "startup",
     name: "Startup",
     priceCents: 9900,
-    agentLimit: 10,
+    agentLimit: 25,
     memberLimit: 5,
     apiKeyLimit: 5,
     activityRetentionDays: 30,
     advancedPolicies: true,
     auditExport: false,
     webhooks: true,
-    stripePriceId: process.env.STRIPE_PRICE_STARTUP ?? null,
+    lemonSqueezyVariantId: process.env.LEMONSQUEEZY_STARTUP_VARIANT_ID ?? null,
   },
   growth: {
     id: "growth",
     name: "Growth",
     priceCents: 29900,
-    agentLimit: 50,
+    agentLimit: 100,
     memberLimit: 20,
     apiKeyLimit: 20,
     activityRetentionDays: 90,
     advancedPolicies: true,
     auditExport: true,
     webhooks: true,
-    stripePriceId: process.env.STRIPE_PRICE_GROWTH ?? null,
+    lemonSqueezyVariantId: process.env.LEMONSQUEEZY_GROWTH_VARIANT_ID ?? null,
   },
   business: {
     id: "business",
     name: "Business",
     priceCents: 99900,
-    agentLimit: 200,
+    agentLimit: 500,
     memberLimit: 100,
     apiKeyLimit: 100,
     activityRetentionDays: 365,
     advancedPolicies: true,
     auditExport: true,
     webhooks: true,
-    stripePriceId: process.env.STRIPE_PRICE_BUSINESS ?? null,
+    lemonSqueezyVariantId: process.env.LEMONSQUEEZY_BUSINESS_VARIANT_ID ?? null,
   },
   enterprise: {
     id: "enterprise",
@@ -97,7 +97,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     advancedPolicies: true,
     auditExport: true,
     webhooks: true,
-    stripePriceId: null,
+    lemonSqueezyVariantId: null,
   },
 };
 

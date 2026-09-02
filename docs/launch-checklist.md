@@ -45,15 +45,17 @@ trail by trace id.
       `lib/billing/plans.ts`.
 - [x] Entitlements — enforced server-side at every creation path, not
       just displayed.
-- [ ] Stripe test mode — the integration is real, working code with
-      signature-verification and idempotency tests using synthetic
-      events, but **has not been exercised against a live Stripe
-      test-mode account** — this environment has no Stripe credentials.
-- [x] Webhooks — signature verification + idempotent handling for 6
-      event types, tested with synthetic signed payloads.
+- [ ] Lemon Squeezy test mode — the integration is real, working code
+      with signature-verification, idempotency, tenant-isolation and
+      lifecycle tests using synthetic events, but **has not been
+      exercised against a live Lemon Squeezy test-mode store** — this
+      environment has no credentials.
+- [x] Webhooks — `X-Signature` HMAC verification + idempotent, absolute-
+      state handling for the `subscription_*` events, tested with
+      synthetic signed payloads.
 - [x] Billing UI — `/settings/billing` shows real usage against real
-      limits; shows an honest "not configured" state when Stripe isn't
-      set up.
+      limits; shows an honest "not configured" state when Lemon Squeezy
+      isn't set up.
 
 ## Marketing
 

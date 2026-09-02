@@ -10,14 +10,16 @@ environment needs.
 - `DATABASE_URL`
 - `AUTH_SECRET`
 - `AUTH_URL` (production only — auto-detected in dev)
+- `NEXT_PUBLIC_APP_URL` (optional — post-checkout redirect origin; falls back to `AUTH_URL`)
 
 ## Optional — degrades gracefully, feature-scoped
 
 - `PLATFORM_ADMIN_EMAILS` — unset means `/admin` is unreachable by anyone,
   not open to everyone. Fails closed.
-- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-  `STRIPE_PRICE_STARTUP` / `STRIPE_PRICE_GROWTH` / `STRIPE_PRICE_BUSINESS` —
-  unset means billing shows "not configured," every org stays on Free.
+- `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`,
+  `LEMONSQUEEZY_STARTUP_VARIANT_ID` / `LEMONSQUEEZY_GROWTH_VARIANT_ID` /
+  `LEMONSQUEEZY_BUSINESS_VARIANT_ID` — unset means billing shows "not
+  configured," every org stays on Free.
 - `NEXT_PUBLIC_CONTACT_EMAIL` — unset means the `/trust` responsible-disclosure
   section and `/contact` say so explicitly instead of showing a broken/fake
   contact path (`app/(marketing)/trust/page.tsx`).

@@ -40,7 +40,7 @@ export default function TermsPage() {
 
       <h2>Plans and billing</h2>
       <p>
-        Paid plans are billed through Stripe on the cadence shown at checkout. Plan limits and features are described
+        Paid plans are billed through Lemon Squeezy, our merchant of record, on the cadence shown at checkout. Plan limits and features are described
         on our <a href="/pricing">Pricing</a> page and enforced by the product itself, not just displayed. You can
         cancel or change your plan at any time from your billing settings.
       </p>

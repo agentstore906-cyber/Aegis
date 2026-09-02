@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { canViewBilling, canManageBilling } from "@/lib/billing/authorization";
 import { getPlan, PLANS, type PlanId } from "@/lib/billing/plans";
-import { isBillingConfigured } from "@/lib/billing/stripe";
+import { isBillingConfigured } from "@/lib/billing/lemonsqueezy";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -18,9 +18,25 @@ import { UsageBar } from "@/components/billing/usage-bar";
 
 export const metadata: Metadata = { title: "Billing" };
 
-export default async function BillingPage() {
+const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
+  active: "success",
+  trialing: "success",
+  past_due: "warning",
+  paused: "warning",
+  unpaid: "danger",
+  cancelled: "neutral",
+  expired: "danger",
+};
+
+export default async function BillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ checkout?: string }>;
+}) {
   const { organization, role } = await requireActiveOrganization();
   if (!canViewBilling(role)) notFound();
+
+  const { checkout } = await searchParams;
 
   const [agentCount, memberCount, apiKeyCount] = await Promise.all([
     prisma.agent.count({ where: { organizationId: organization.id } }),
@@ -31,6 +47,7 @@ export default async function BillingPage() {
   const plan = getPlan(organization.plan);
   const configured = isBillingConfigured();
   const canManage = canManageBilling(role);
+  const hasSubscription = Boolean(organization.lemonSqueezySubscriptionId);
   const otherPlans = (Object.keys(PLANS) as PlanId[])
     .filter((id) => id !== plan.id && id !== "enterprise")
     .map((id) => PLANS[id]);
@@ -39,11 +56,21 @@ export default async function BillingPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader title="Billing" description={`${organization.name}'s plan and usage.`} />
 
+      {checkout === "success" && (
+        <Alert tone="info">
+          Payment received. We&rsquo;re confirming your subscription with Lemon Squeezy — this page
+          will show the new plan within a minute. You can safely refresh.
+        </Alert>
+      )}
+      {checkout === "cancelled" && (
+        <Alert tone="warning">Checkout was cancelled — your plan hasn&rsquo;t changed.</Alert>
+      )}
+
       {!configured && (
         <Alert tone="info">
-          Billing is not configured in this environment — no Stripe credentials are set. Plan limits are still
-          enforced below; upgrading requires a deployment with <code>STRIPE_SECRET_KEY</code> configured. See
-          docs/deployment.md.
+          Billing is not configured in this environment — no Lemon Squeezy credentials are set. Plan
+          limits are still enforced below; subscribing requires a deployment with{" "}
+          <code>LEMONSQUEEZY_API_KEY</code> configured. See docs/deployment.md.
         </Alert>
       )}
 
@@ -57,8 +84,8 @@ export default async function BillingPage() {
               <div className="flex items-center gap-2">
                 <p className="text-lg font-semibold text-foreground">{plan.name}</p>
                 {organization.subscriptionStatus && (
-                  <Badge tone={organization.subscriptionStatus === "active" ? "success" : "warning"}>
-                    {organization.subscriptionStatus}
+                  <Badge tone={STATUS_TONE[organization.subscriptionStatus] ?? "neutral"}>
+                    {organization.subscriptionStatus.replace("_", " ")}
                   </Badge>
                 )}
               </div>
@@ -67,11 +94,12 @@ export default async function BillingPage() {
               </p>
               {organization.currentPeriodEnd && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {organization.cancelAtPeriodEnd ? "Cancels" : "Renews"} {formatDateTime(organization.currentPeriodEnd)}
+                  {organization.cancelAtPeriodEnd ? "Access ends" : "Renews"}{" "}
+                  {formatDateTime(organization.currentPeriodEnd)}
                 </p>
               )}
             </div>
-            {canManage && organization.stripeCustomerId && configured && <BillingPortalButton />}
+            {canManage && hasSubscription && configured && <BillingPortalButton />}
           </div>
         </CardContent>
       </Card>
@@ -90,7 +118,7 @@ export default async function BillingPage() {
       {canManage && (
         <Card>
           <CardHeader>
-            <CardTitle>Upgrade</CardTitle>
+            <CardTitle>{hasSubscription ? "Change plan" : "Subscribe"}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -99,14 +127,19 @@ export default async function BillingPage() {
                   <p className="text-sm font-semibold text-foreground">{candidate.name}</p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
                     {candidate.priceCents === null ? "Custom" : formatCurrency(candidate.priceCents)}
-                    {candidate.priceCents !== null && <span className="text-xs font-normal text-muted-foreground">/mo</span>}
+                    {candidate.priceCents !== null && (
+                      <span className="text-xs font-normal text-muted-foreground">/mo</span>
+                    )}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {candidate.agentLimit ?? "Unlimited"} agents · {candidate.memberLimit ?? "Unlimited"} members
                   </p>
                   <div className="mt-3">
-                    {configured && candidate.stripePriceId ? (
-                      <BillingUpgradeButton planId={candidate.id} label={`Upgrade to ${candidate.name}`} />
+                    {configured && candidate.lemonSqueezyVariantId ? (
+                      <BillingUpgradeButton
+                        planId={candidate.id}
+                        label={`Subscribe to ${candidate.name}`}
+                      />
                     ) : (
                       <p className="text-xs text-muted-foreground">Contact us to upgrade.</p>
                     )}
@@ -114,6 +147,10 @@ export default async function BillingPage() {
                 </div>
               ))}
             </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Payments are processed by Lemon Squeezy. Your plan changes once their confirmation
+              webhook reaches Aegis — not on the redirect back from checkout.
+            </p>
           </CardContent>
         </Card>
       )}

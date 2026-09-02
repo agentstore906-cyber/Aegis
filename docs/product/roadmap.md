@@ -40,10 +40,11 @@ block a real customer, not by build effort:
   onto a durable queue with real retries (`docs/webhooks.md`). A real
   infrastructure decision (cron trigger vs. queue worker), not a small
   patch — don't build a bespoke one for a single feature.
-- **Stripe verified against a real test-mode account** — the integration
-  is real (signature verification + idempotency, tested against synthetic
-  events), just never exercised against Stripe itself in this environment.
-  Table stakes before real billing.
+- **Lemon Squeezy verified against a real test-mode store** — the
+  integration is real (`X-Signature` verification + idempotency + tenant
+  isolation + lifecycle mapping, tested against synthetic events), just
+  never exercised against Lemon Squeezy itself in this environment. Table
+  stakes before real billing.
 
 ## Later
 

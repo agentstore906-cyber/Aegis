@@ -40,9 +40,9 @@ or backup-configuration step of its own to hand that responsibility to.
 
 A point-in-time snapshot of every table, including `AuditEvent` (the
 append-only audit trail), `ApiKey` (hashes only — a restore never leaks raw
-keys), and `StripeWebhookEvent` (the Stripe idempotency ledger — see
-`docs/deployment.md#6-stripe-webhook-configuration` for why replayed events
-after a restore are still handled safely). See
+keys), and `BillingWebhookEvent` (the Lemon Squeezy idempotency ledger — see
+`docs/deployment.md#6-lemon-squeezy-webhook-configuration` for why replayed
+events after a restore are still handled safely). See
 `docs/operations/disaster-recovery.md` for what happens between "database
 goes down" and "database is restored."
 

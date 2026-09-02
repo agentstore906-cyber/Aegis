@@ -133,11 +133,12 @@ lib/
     request.ts                Size-capped JSON body parsing
     logger.ts                  Structured per-request logging (never the raw key)
   rate-limit/          RateLimiter interface + InMemoryRateLimiter (Redis-swappable later)
-  billing/             Plans, entitlements, Stripe — see docs/deployment.md#6
+  billing/             Plans, entitlements, Lemon Squeezy — see docs/deployment.md#6
     plans.ts               PLANS — the one place plan limits/pricing are defined
     entitlements.ts          canCreateAgent/canInviteMember/... — server-enforced, not UI-only
-    stripe.ts                 Lazy client; null (not a throw) when unconfigured
-    actions.ts                 Checkout + billing-portal Server Actions
+    lemonsqueezy.ts           fetch-based client + webhook HMAC verify; "not configured" when env absent
+    sync.ts                   syncSubscriptionState() — maps a LS subscription onto Organization
+    actions.ts                 Checkout + customer-portal Server Actions
   leads/               Phase 8 — /contact's lead capture (not tenant-owned, no Organization yet)
     service.ts              submitLead() — honeypot, rate limit, per-email throttle, all pure/testable
     repository.ts             Prisma access
@@ -171,7 +172,7 @@ docs/
   rbac.md                   Capability table, privilege-escalation guards, invitations
   webhooks.md               SSRF protections, signing, delivery-log limitations
   retention.md              What's configurable today vs. actually enforced (nothing yet)
-  deployment.md             Env vars, migrations, Stripe webhook setup, health checks
+  deployment.md             Env vars, migrations, Lemon Squeezy webhook setup, health checks
   launch-checklist.md       Honest checked/unchecked state of every launch surface
   customer-feedback.md      Deliberately empty log template for real customer feedback
   security/questionnaire.md Prepared, factual answers for a customer security review
@@ -549,11 +550,11 @@ environment, not this repository's.
   Free/Startup/Growth/Business/Enterprise) enforced server-side
   (`lib/billing/entitlements.ts`) against agent/member/API-key creation,
   webhook creation, and audit export — never UI-only; `/settings/billing`
-  shows real usage against real limits. Real Stripe Checkout + customer
-  portal + signature-verified, idempotent webhook handling
-  (`app/api/webhooks/stripe/route.ts`), gated behind `STRIPE_SECRET_KEY`
-  being configured — the app runs fully without it, showing an honest
-  "not configured" state instead of a fake button.
+  shows real usage against real limits. Real Lemon Squeezy hosted checkout
+  + customer portal + `X-Signature` HMAC-verified, idempotent webhook
+  handling (`app/api/webhooks/lemonsqueezy/route.ts`), gated behind
+  `LEMONSQUEEZY_API_KEY` being configured — the app runs fully without it,
+  showing an honest "not configured" state instead of a fake button.
 - **Production hardening (Phase 6)**: security headers (CSP, HSTS in
   production, frame protection), startup environment validation
   (`lib/env.ts`), a `/api/health` endpoint, secret redaction extended to
@@ -604,8 +605,8 @@ real customer validation (5–10 companies, real usage, real feedback — see
 `docs/customer-feedback.md`) before deciding what to build next, rather
 than continuing to add features speculatively. The concrete technical
 items already identified as real gaps, to prioritize based on what
-actual customers hit first: verifying the Stripe integration against a
-real test-mode account (this environment has none); a real channel back
+actual customers hit first: verifying the Lemon Squeezy integration against
+a real test-mode store (this environment has none); a real channel back
 to the external agent so an `APPROVED` decision can actually resume its
 execution (today's SDK only polls); a scheduler/background-job runner,
 so retention settings can actually delete data and webhook delivery can
@@ -625,17 +626,18 @@ placeholder.
   postgresql start` (or just `wsl` to open a session) to bring it back up
   before starting the app. For a setup that doesn't need this step, use
   Docker or a hosted provider instead (see [Local setup](#local-setup)).
-- **Billing (Phase 6) is real, but only verified without a live Stripe
-  account.** Plans/entitlements (`lib/billing/plans.ts`,
+- **Billing is real, but only verified without a live Lemon Squeezy
+  store.** Plans/entitlements (`lib/billing/plans.ts`,
   `lib/billing/entitlements.ts`) are enforced server-side against every
   agent/member/API-key creation and audit export, not just displayed —
-  and the Stripe integration (`lib/billing/stripe.ts`,
-  `app/api/webhooks/stripe/route.ts`) is real, working code with
-  signature verification and idempotency covered by tests using
-  synthetic Stripe events. What's **not** verified here: an actual
-  checkout → webhook → entitlement-unlock round trip against a real
-  Stripe test-mode account, since this environment has no Stripe
-  credentials. See [`docs/deployment.md`](docs/deployment.md#6-stripe-webhook-configuration).
+  and the Lemon Squeezy integration (`lib/billing/lemonsqueezy.ts`,
+  `lib/billing/sync.ts`, `app/api/webhooks/lemonsqueezy/route.ts`) is
+  real, working code with `X-Signature` HMAC verification, idempotency,
+  tenant-isolation, and lifecycle mapping covered by tests using
+  synthetic events. What's **not** verified here: an actual checkout →
+  webhook → entitlement-unlock round trip against a real Lemon Squeezy
+  test-mode store, since this environment has no credentials. See
+  [`docs/deployment.md`](docs/deployment.md#6-lemon-squeezy-webhook-configuration).
 - OAuth providers are not wired up; the schema and NextAuth config are ready
   for them.
 - The public API's rate limiter (`lib/rate-limit/limiter.ts`) is an

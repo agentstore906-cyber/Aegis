@@ -28,21 +28,22 @@ database is reachable again — Prisma reconnects on the next query.
 **Out of scope today:** No read replica, no automatic failover to a standby,
 no request queueing/buffering during an outage.
 
-## Stripe unavailable
+## Lemon Squeezy unavailable
 
-**What happens:** `getStripeClient()` (`lib/billing/stripe.ts`) already
-degrades to "not configured" when Stripe env vars are absent; a genuine
-Stripe *outage* (vs. not configured) means checkout/portal-session creation
-and webhook processing fail. Existing subscriptions already reflected in
-`Organization.plan`/`subscriptionStatus` (the local mirror of Stripe's state
-— see `prisma/schema.prisma`'s Billing section) are unaffected — Aegis
-enforces entitlements from that local field, not a live Stripe call on every
-request, so an outage doesn't degrade existing customers' access.
+**What happens:** `isBillingConfigured()` (`lib/billing/lemonsqueezy.ts`)
+degrades to "not configured" when the env vars are absent; a genuine Lemon
+Squeezy *outage* (vs. not configured) means checkout and customer-portal
+link creation fail, and webhook deliveries are delayed. Existing
+subscriptions already reflected in `Organization.plan`/`subscriptionStatus`
+(the local mirror of Lemon Squeezy's state — see `prisma/schema.prisma`'s
+Billing section) are unaffected — Aegis enforces entitlements from that
+local field, not a live API call on every request, so an outage doesn't
+degrade existing customers' access.
 
-**Recovery:** Nothing to do on Aegis's side beyond waiting for Stripe.
-Webhook delivery is "at least once" per Stripe's own guarantee, and
-processing is idempotent (`StripeWebhookEvent` table) — once Stripe
-recovers, it redelivers anything missed and it's applied safely.
+**Recovery:** Nothing to do on Aegis's side beyond waiting for Lemon
+Squeezy. Its webhooks retry on failure, and processing is idempotent (the
+`billing_webhook_events` dedup ledger plus absolute-state writes in
+`lib/billing/sync.ts`) — once it recovers, redelivered events apply safely.
 
 ## Authentication (NextAuth) issue
 

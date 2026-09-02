@@ -25,8 +25,8 @@ export default function PrivacyPage() {
         <li>Data your own AI agents send to Aegis via the public API and SDK — action names, resources, and any context you choose to include.</li>
       </ul>
       <p>
-        We do not collect payment card details ourselves — billing is handled entirely by Stripe, and Aegis never sees or
-        stores your card number.
+        We do not collect payment card details ourselves — billing is handled entirely by Lemon Squeezy, and Aegis never
+        sees or stores your card number.
       </p>
 
       <h2>How we use it</h2>
@@ -50,7 +50,7 @@ export default function PrivacyPage() {
       <h2>Data sharing</h2>
       <p>
         We do not sell your data. Data is shared only with the infrastructure providers necessary to run the product
-        (your database host, and Stripe for billing where configured), and never across organizations — every row in
+        (your database host, and Lemon Squeezy for billing where configured), and never across organizations — every row in
         Aegis is scoped to the organization that created it.
       </p>
 

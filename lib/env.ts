@@ -6,11 +6,12 @@ import { z } from "zod";
  * instead of surfacing later as an opaque Prisma/NextAuth error deep in a
  * request. Imported from `lib/db.ts`, which every request already touches.
  *
- * Optional integration variables (Stripe, future OAuth) are intentionally
- * NOT required here — the app must boot without them; each integration
- * checks its own variables lazily where it's actually used (see
- * `lib/billing/stripe.ts`) and degrades to "not configured" rather than
- * failing the whole app. See docs/deployment.md for the full variable list.
+ * Optional integration variables (Lemon Squeezy, future OAuth) are
+ * intentionally NOT required here — the app must boot without them; each
+ * integration checks its own variables lazily where it's actually used
+ * (see `lib/billing/lemonsqueezy.ts`) and degrades to "not configured"
+ * rather than failing the whole app. See docs/deployment.md for the full
+ * variable list.
  */
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required (PostgreSQL connection string)."),

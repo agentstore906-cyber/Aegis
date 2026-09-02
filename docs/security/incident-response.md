@@ -38,7 +38,7 @@ Before treating a report as a real incident:
   server logs, the reporter's proof-of-concept).
 - Classify severity: does it expose one organization's data to another
   (tenant isolation break), allow privilege escalation, expose secrets
-  (API keys, session tokens, Stripe credentials), or is it lower-severity
+  (API keys, session tokens, Lemon Squeezy credentials), or is it lower-severity
   (e.g. a rate-limit bypass, a non-sensitive info leak)?
 
 ## 3. Contain

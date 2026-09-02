@@ -37,15 +37,17 @@ into `/admin` (internal-only, not an organization role — see
 |---|---|
 | `PLATFORM_ADMIN_EMAILS` | Comma-separated emails allowed into `/admin` |
 
-**Optional — billing (Stripe).** The app runs fully without these;
+**Optional — billing (Lemon Squeezy).** The app runs fully without these;
 `/settings/billing` shows "not configured" and every org stays on Free.
-See [§6](#6-stripe-webhook-configuration).
+See [§6](#6-lemon-squeezy-webhook-configuration).
 
 | Variable | Purpose |
 |---|---|
-| `STRIPE_SECRET_KEY` | Server-side Stripe API key |
-| `STRIPE_WEBHOOK_SECRET` | Verifies `POST /api/webhooks/stripe` signatures |
-| `STRIPE_PRICE_STARTUP` / `STRIPE_PRICE_GROWTH` / `STRIPE_PRICE_BUSINESS` | Stripe Price IDs for each self-serve plan — see `lib/billing/plans.ts` |
+| `LEMONSQUEEZY_API_KEY` | Server-side API key (Settings → API) |
+| `LEMONSQUEEZY_STORE_ID` | Numeric store id (Settings → Stores) |
+| `LEMONSQUEEZY_WEBHOOK_SECRET` | Verifies `POST /api/webhooks/lemonsqueezy` signatures (the secret you set when creating the webhook) |
+| `LEMONSQUEEZY_STARTUP_VARIANT_ID` / `LEMONSQUEEZY_GROWTH_VARIANT_ID` / `LEMONSQUEEZY_BUSINESS_VARIANT_ID` | Numeric **variant** id of each plan's product — see `lib/billing/plans.ts` |
+| `NEXT_PUBLIC_APP_URL` | Public origin, used to build the post-checkout redirect URL (falls back to `AUTH_URL`) |
 
 **Optional — future OAuth.** Not required; credentials (email+password)
 auth works standalone. See `.env.example`.
@@ -94,28 +96,47 @@ enables `Strict-Transport-Security` in the security headers (see
 `next.config.ts`) and disables the local-only HTTP carve-out in
 `lib/webhooks/ssrf.ts`'s webhook-URL validator.
 
-## 6. Stripe webhook configuration
+## 6. Lemon Squeezy webhook configuration
 
-If billing is enabled (§2), register a webhook endpoint in the Stripe
-Dashboard (or via the Stripe CLI for local testing) pointing at:
+If billing is enabled (§2), create a webhook in **Lemon Squeezy →
+Settings → Webhooks** pointing at:
 
 ```
-https://<your-domain>/api/webhooks/stripe
+https://<your-domain>/api/webhooks/lemonsqueezy
 ```
 
-Subscribe it to at least: `checkout.session.completed`,
-`customer.subscription.created`, `customer.subscription.updated`,
-`customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
-Copy the signing secret Stripe gives you into `STRIPE_WEBHOOK_SECRET`.
-The endpoint verifies every request's signature before touching the
-database (`app/api/webhooks/stripe/route.ts`) and is idempotent per
-Stripe event id (`StripeWebhookEvent` table) — a redelivered event is a
-safe no-op. **This has been verified with signature-verification and
-idempotency tests using synthetic events (`app/api/webhooks/stripe/__tests__/route.test.ts`),
-not against a live Stripe account** — this environment has no real Stripe
-test-mode credentials. Test the full checkout → webhook → entitlement
-round trip against a real Stripe test-mode account before relying on it
-in production.
+Set a signing secret and copy it into `LEMONSQUEEZY_WEBHOOK_SECRET`.
+Subscribe it to the `subscription_*` events (at minimum
+`subscription_created`, `subscription_updated`, `subscription_cancelled`,
+`subscription_resumed`, `subscription_expired`, `subscription_paused`,
+`subscription_unpaused`, `subscription_payment_failed`,
+`subscription_payment_success`, `subscription_payment_recovered`).
+
+The endpoint verifies the `X-Signature` HMAC-SHA256 before touching the
+database (`app/api/webhooks/lemonsqueezy/route.ts`). Lemon Squeezy
+payloads carry no event id, so replays are deduplicated on a digest of
+(event name + subscription id + the resource's `updated_at`)
+(`BillingWebhookEvent` table); handling is also written to set absolute
+state, so an out-of-order or duplicated event still converges.
+**Verified with signature-verification, idempotency, tenant-isolation and
+lifecycle tests using synthetic events
+(`app/api/webhooks/lemonsqueezy/__tests__/route.test.ts`), not against a
+live Lemon Squeezy store.** Run one real checkout → webhook → plan-change
+round trip against a Lemon Squeezy **test-mode** store before relying on
+it in production.
+
+### Switching from test mode to live
+
+1. In Lemon Squeezy, toggle the store out of **Test mode**.
+2. Create the live product + variants (or publish the test ones). Copy the
+   live **variant** ids into `LEMONSQUEEZY_*_VARIANT_ID`.
+3. Generate a **live** API key (Settings → API) → `LEMONSQUEEZY_API_KEY`.
+4. Create a **live** webhook at the same `/api/webhooks/lemonsqueezy` URL
+   with a fresh signing secret → `LEMONSQUEEZY_WEBHOOK_SECRET`.
+5. Set `LEMONSQUEEZY_STORE_ID` to the same store (the id doesn't change
+   between modes) and `NEXT_PUBLIC_APP_URL` to the production origin.
+6. Redeploy. No code or schema change is required — every Lemon Squeezy
+   value is read from the environment.
 
 ## 7. API base URL
 

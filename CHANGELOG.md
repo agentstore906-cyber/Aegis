@@ -6,6 +6,22 @@ notes. No internal security-finding detail is included per Phase 9's own
 documentation discipline (see `docs/security/incident-response.md`); a
 security fix is noted as "hardened," not described in exploit detail.
 
+## Unreleased
+
+- **Billing provider switched from Stripe to Lemon Squeezy.** Hosted
+  checkout, on-demand customer-portal links, and an `X-Signature`
+  HMAC-verified, idempotent webhook at `/api/webhooks/lemonsqueezy`
+  (`lib/billing/lemonsqueezy.ts`, `lib/billing/sync.ts`). Plan config,
+  entitlements, authorization, and the `/settings/billing` page are
+  unchanged in shape — only the provider under them. The Stripe client,
+  route, and `stripe` dependency were removed. Migration
+  `20260901120000_replace_stripe_with_lemonsqueezy` drops the two
+  Stripe id columns (always empty — no org ever completed a checkout),
+  adds Lemon Squeezy id + period columns, and renames
+  `stripe_webhook_events` → `billing_webhook_events`.
+- Raised paid-plan agent limits (Startup 10→25, Growth 50→100,
+  Business 200→500).
+
 ## Phase 10 — Customer-proven scale
 
 - Added an auto-detected onboarding checklist on `/overview`

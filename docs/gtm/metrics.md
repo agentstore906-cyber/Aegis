@@ -43,7 +43,7 @@ Visitors → Signups → Organizations → Agent Connected → First Event
 
 Every step through "Activated" is derivable today from real Prisma data
 (no analytics provider needed) — see `/admin/metrics`. "Paid" is real too
-(`Organization.subscriptionStatus`/`.plan`, Stripe-mirrored). Conversion
+(`Organization.subscriptionStatus`/`.plan`, Lemon Squeezy-mirrored). Conversion
 *rates* between steps require enough volume at each step to be meaningful;
 with a handful of organizations, a rate is noise, not signal — don't chart
 percentages until there's a real cohort size behind them (a rough floor:
@@ -92,8 +92,8 @@ ready; the cohort isn't.
 ## MRR / revenue
 
 `/admin/metrics` computes real MRR today: `sum(PLANS[org.plan].priceCents)`
-over organizations with `subscriptionStatus === "active"` — Stripe-mirrored
-data, not projected. New/expansion/contraction/churn MRR (the delta
+over organizations with `subscriptionStatus === "active"` — Lemon
+Squeezy-mirrored data, not projected. New/expansion/contraction/churn MRR (the delta
 categories) need a time series of that same computation, which isn't
 built yet — the base number is real; the trend isn't tracked over time
 yet.

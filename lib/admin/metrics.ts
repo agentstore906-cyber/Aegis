@@ -54,8 +54,9 @@ export async function getPlatformMetrics(): Promise<PlatformMetrics> {
     prisma.agent.count(),
     prisma.policyEvaluation.count(),
     prisma.organization.groupBy({ by: ["plan"], _count: { _all: true } }),
-    // MRR/paid-count source directly from Stripe-mirrored fields — never
-    // fabricated, and only counts orgs Stripe itself reports as active.
+    // MRR/paid-count source directly from Lemon Squeezy-mirrored fields —
+    // never fabricated, and only counts orgs whose subscription Lemon
+    // Squeezy itself reports as active.
     prisma.organization.findMany({
       where: { subscriptionStatus: "active" },
       select: { plan: true },

@@ -101,18 +101,21 @@ model Organization {
   slug String @unique
   plan String @default("free")
 
-  // Billing — Phase 6. `plan` above is the actual source of truth Aegis
-  // enforces entitlements against (see lib/billing/plans.ts); these fields
-  // mirror Stripe's own state so the org's billing status survives without
-  // a live Stripe call on every request. Null/"free" until a checkout
-  // actually completes — see lib/billing/stripe.ts and
-  // app/api/webhooks/stripe/route.ts for how they're populated, and
-  // docs/deployment.md for what configuring Stripe requires.
-  stripeCustomerId     String?
-  stripeSubscriptionId String?
-  subscriptionStatus   String?
-  currentPeriodEnd     DateTime?
-  cancelAtPeriodEnd    Boolean   @default(false)
+  // Billing. `plan` above is the actual source of truth Aegis enforces
+  // entitlements against (see lib/billing/plans.ts); these fields mirror
+  // Lemon Squeezy's own subscription state so the org's billing status
+  // survives without a live API call on every request. Null/"free" until a
+  // checkout actually completes — see lib/billing/lemonsqueezy.ts and
+  // app/api/webhooks/lemonsqueezy/route.ts for how they're populated, and
+  // docs/deployment.md for what configuring Lemon Squeezy requires.
+  lemonSqueezyCustomerId     String?
+  lemonSqueezySubscriptionId String?
+  lemonSqueezyVariantId      String?
+  subscriptionStatus         String?
+  billingInterval            String?
+  currentPeriodStart         DateTime?
+  currentPeriodEnd           DateTime?
+  cancelAtPeriodEnd          Boolean   @default(false)
 
   // Retention — configuration only. Nothing in the application deletes
   // data automatically based on these; see docs/retention.md. Null means
@@ -856,20 +859,20 @@ model WebhookDelivery {
 }
 
 // ---------------------------------------------------------------------------
-// Billing — Phase 6. Stripe is the source of truth for subscription state;
-// this table exists only so a replayed/duplicate Stripe webhook delivery
-// (Stripe explicitly documents "at least once" delivery) can never be
-// applied twice — same check-then-create idempotency shape already used
-// for approval-request dedup, keyed on Stripe's own event id instead of an
-// Idempotency-Key header. See app/api/webhooks/stripe/route.ts.
+// Billing. Lemon Squeezy is the source of truth for subscription state;
+// this table exists only so a replayed/duplicate webhook delivery can never
+// be applied twice. Lemon Squeezy payloads carry no stable event id, so the
+// primary key is a deterministic digest of (event name + subscription id +
+// the resource's updated_at) — a genuine retry sends a byte-identical body
+// and therefore the same key. See app/api/webhooks/lemonsqueezy/route.ts.
 // ---------------------------------------------------------------------------
 
-model StripeWebhookEvent {
-  id          String   @id // Stripe event id (evt_...), not a generated cuid
+model BillingWebhookEvent {
+  id          String   @id // dedup key: sha256(eventName:resourceId:updatedAt)
   type        String
   processedAt DateTime @default(now())
 
-  @@map("stripe_webhook_events")
+  @@map("billing_webhook_events")
 }
 
 // ---------------------------------------------------------------------------
