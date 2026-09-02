@@ -5,6 +5,14 @@ import { requireUser } from "@/lib/auth/session";
 import { isPlatformAdmin } from "@/lib/admin/authorization";
 import { Logo } from "@/components/ui/logo";
 
+// Every /admin route is platform-admin-gated (requireUser + isPlatformAdmin
+// below) and renders live cross-tenant data — it must be evaluated per
+// request, never captured as a build-time static snapshot. Some of these
+// pages (e.g. /admin/metrics) have no dynamic API of their own, so without
+// this they'd be prerendered and would run platform-wide aggregate queries
+// during `next build`. Applies to all segments nested under this layout.
+export const dynamic = "force-dynamic";
+
 const ADMIN_NAV = [
   { label: "Leads", href: "/admin/leads" },
   { label: "Feedback", href: "/admin/feedback" },
