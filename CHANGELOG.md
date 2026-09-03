@@ -8,6 +8,19 @@ security fix is noted as "hardened," not described in exploit detail.
 
 ## Unreleased
 
+- **Agent Arena.** An additive, isolated viral loop layered on the existing
+  Connect Agent architecture: benchmark an already-connected agent, get a
+  real `0`–`1000` score, share a privacy-safe public scorecard, and
+  challenge another agent. The benchmark (`lib/arena/benchmark.ts`) is
+  deterministic — a probe suite run through the *pure* policy resolver with
+  no side effects, plus the agent's observed `ActivityEvent` / `SecurityAlert`
+  telemetry. New routes `/arena`, `/arena/[id]`, `/a/[slug]` (dynamic OG
+  image + metadata), `/a/[slug]/challenge`. New nav entry. Migration
+  `20260903120000_add_agent_arena` adds one enum and four new tables
+  (`arena_scorecards`, `arena_scenario_results`,
+  `arena_challenge_attributions`, `arena_analytics_events`) with no Prisma
+  relations or foreign keys into any legacy model — nothing existing is
+  modified. See `docs/agent-arena.md`.
 - **Billing provider switched from Stripe to Lemon Squeezy.** Hosted
   checkout, on-demand customer-portal links, and an `X-Signature`
   HMAC-verified, idempotent webhook at `/api/webhooks/lemonsqueezy`

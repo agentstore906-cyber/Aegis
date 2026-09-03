@@ -12,6 +12,7 @@ import {
   Settings,
   Webhook,
   MessageSquarePlus,
+  Swords,
 } from "lucide-react";
 
 export type NavItem = {
@@ -24,6 +25,7 @@ export type NavItem = {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", href: "/overview", icon: LayoutDashboard, status: "active" },
   { label: "Agents", href: "/agents", icon: Bot, status: "active" },
+  { label: "Agent Arena", href: "/arena", icon: Swords, status: "active" },
   { label: "Activity", href: "/activity", icon: Activity, status: "active" },
   { label: "Approvals", href: "/approvals", icon: CheckCircle2, status: "active" },
   { label: "Policies", href: "/policies", icon: ShieldCheck, status: "active" },

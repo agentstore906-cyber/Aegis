@@ -985,3 +985,121 @@ model FeatureRequestVote {
   @@unique([featureRequestId, userId])
   @@map("feature_request_votes")
 }
+
+// ---------------------------------------------------------------------------
+// Agent Arena — additive, fully isolated feature (see docs/agent-arena.md).
+//
+// These models deliberately hold NO Prisma relations into the legacy models
+// (Organization, Agent, User) — only plain scalar id columns with indexes,
+// and no database foreign keys. Arena is a self-contained addition layered
+// on top of the existing Connect Agent architecture: it reads an agent's
+// permissions, policies, and observed activity to produce a benchmark
+// score, and never writes to or constrains any legacy table. An agent or
+// organization is never deleted in this codebase; if that ever changes, the
+// cleanup path must explicitly decide what to do with arena rows rather
+// than getting cascade behaviour for free.
+// ---------------------------------------------------------------------------
+
+enum ArenaScorecardStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model ArenaScorecard {
+  id             String @id @default(cuid())
+  organizationId String // scalar only — no relation to Organization
+  agentId        String // scalar only — no relation to Agent
+
+  status ArenaScorecardStatus @default(PENDING)
+
+  benchmarkVersion String @default("v1")
+
+  // Scores. Null until status === COMPLETED.
+  overallScore   Int? // 0–1000
+  categoryScores Json? // { security: 91, toolSafety: 94, ... } each 0–100
+  metrics        Json? // non-sensitive supporting numbers shown on the scorecard
+  errorMessage   String? @db.Text
+
+  // Sharing — private by default. `publicSlug` is an unguessable token,
+  // never the primary id, and is minted only on an explicit
+  // "Make Scorecard Public" action.
+  isPublic    Boolean   @default(false)
+  publicSlug  String?   @unique
+  publishedAt DateTime?
+  displayName String? // optional viewer-facing label; defaults to "Anonymous Agent"
+
+  // Challenge lineage — set when this run was started from another
+  // scorecard's "Challenge This Agent" link. Self-relation, arena-internal.
+  challengedFromId String?
+  challengedFrom   ArenaScorecard?  @relation("ArenaChallenge", fields: [challengedFromId], references: [id], onDelete: SetNull)
+  challengers      ArenaScorecard[] @relation("ArenaChallenge")
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  scenarioResults ArenaScenarioResult[]
+
+  @@index([organizationId, createdAt])
+  @@index([agentId, createdAt])
+  @@index([challengedFromId])
+  @@map("arena_scorecards")
+}
+
+// One row per benchmark scenario evaluated for a scorecard. `detail` is
+// written to be safe to show publicly (generic description of what was
+// checked) but the public scorecard only ever renders category totals.
+model ArenaScenarioResult {
+  id          String @id @default(cuid())
+  scorecardId String
+
+  category    String // "security" | "toolSafety" | ...
+  scenarioKey String
+  title       String
+  passed      Boolean
+  score       Int // 0–100 for this scenario
+  weight      Int    @default(1)
+  detail      String @db.Text
+
+  createdAt DateTime @default(now())
+
+  scorecard ArenaScorecard @relation(fields: [scorecardId], references: [id], onDelete: Cascade)
+
+  @@index([scorecardId])
+  @@map("arena_scenario_results")
+}
+
+// Maps a pre-authentication "Challenge This Agent" click to an eventual
+// signup, via a short-lived cookie token, so challenge attribution
+// survives the signup/login round trip.
+model ArenaChallengeAttribution {
+  id          String @id @default(cuid())
+  token       String @unique
+  scorecardId String // the public scorecard being challenged
+
+  createdAt   DateTime  @default(now())
+  convertedAt DateTime? // set when a resulting scorecard is created
+  resultId    String? // the challenger's scorecard, once benchmarked
+
+  @@index([createdAt])
+  @@map("arena_challenge_attributions")
+}
+
+// Append-only arena funnel analytics. Unlike lib/analytics/track.ts (a
+// dev-only console stub) these are persisted so Challenge Rate, Challenge
+// Conversion, and Viral K-Factor can be computed from real data.
+model ArenaAnalyticsEvent {
+  id             String  @id @default(cuid())
+  event          String
+  organizationId String?
+  scorecardId    String?
+  properties     Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([event, createdAt])
+  @@index([scorecardId])
+  @@map("arena_analytics_events")
+}
