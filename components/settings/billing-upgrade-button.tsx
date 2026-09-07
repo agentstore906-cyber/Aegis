@@ -1,26 +1,33 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
-import { createCheckoutSessionAction, type BillingActionState } from "@/lib/billing/actions";
-
-const initialState: BillingActionState = {};
+import { usePaddleCheckout } from "@/components/settings/paddle-checkout-provider";
 
 export function BillingUpgradeButton({ planId, label }: { planId: string; label: string }) {
-  const boundAction = createCheckoutSessionAction.bind(null, planId);
-  const [state, formAction, pending] = useActionState(boundAction, initialState);
+  const { openCheckoutForPlan } = usePaddleCheckout();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const handleClick = () => {
+    setError(null);
+    startTransition(async () => {
+      const result = await openCheckoutForPlan(planId);
+      if (result.error) setError(result.error);
+    });
+  };
 
   return (
-    <form action={formAction}>
-      {state.error && (
+    <div>
+      {error && (
         <div className="mb-2">
-          <Alert tone="danger">{state.error}</Alert>
+          <Alert tone="danger">{error}</Alert>
         </div>
       )}
-      <Button type="submit" size="sm" variant="secondary" className="w-full" disabled={pending}>
-        {pending ? "Redirecting…" : label}
+      <Button type="button" size="sm" variant="secondary" className="w-full" disabled={pending} onClick={handleClick}>
+        {pending ? "Opening checkout…" : label}
       </Button>
-    </form>
+    </div>
   );
 }

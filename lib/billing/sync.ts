@@ -5,58 +5,47 @@ import { recordAuditEvent } from "@/lib/audit/service";
 import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
 import { trackEvent } from "@/lib/analytics/track";
 import { DEFAULT_PLAN_ID } from "@/lib/billing/plans";
-import {
-  mapSubscriptionStatus,
-  planIdForVariant,
-  statusGrantsPaidPlan,
-} from "@/lib/billing/lemonsqueezy";
+import { mapSubscriptionStatus, planIdForPriceId, statusGrantsPaidPlan } from "@/lib/billing/paddle";
 
-/** The subset of a Lemon Squeezy subscription's `attributes` this code reads. */
-export interface LemonSqueezySubscriptionAttributes {
+/** The subset of a Paddle subscription notification this code reads. */
+export interface PaddleSubscriptionAttributes {
   status?: string;
-  customer_id?: number | string;
-  variant_id?: number | string;
-  cancelled?: boolean;
-  renews_at?: string | null;
-  ends_at?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+  customerId?: string | null;
+  priceId?: string | null;
+  cancelAtPeriodEnd?: boolean;
+  currentPeriodStart?: string | null;
+  currentPeriodEnd?: string | null;
 }
 
 /**
- * Writes a Lemon Squeezy subscription's current state onto the
- * organization. Idempotent by construction: it sets *absolute* values from
- * the payload (never deltas), so replaying an event, or events arriving out
- * of order, converge to whatever Lemon Squeezy last reported. `plan` — the
- * column Aegis actually enforces entitlements against — drops to free the
- * moment the status stops granting a paid plan (expired/unpaid/paused).
+ * Writes a Paddle subscription's current state onto the organization.
+ * Idempotent by construction: it sets *absolute* values from the payload
+ * (never deltas), so replaying an event, or events arriving out of order,
+ * converge to whatever Paddle last reported. `plan` — the column Aegis
+ * actually enforces entitlements against — drops to free the moment the
+ * status stops granting a paid plan (paused/expired).
  */
 export async function syncSubscriptionState(
   organizationId: string,
   subscriptionId: string,
-  attributes: LemonSqueezySubscriptionAttributes,
+  attributes: PaddleSubscriptionAttributes,
   eventName: string
 ): Promise<void> {
   const status = mapSubscriptionStatus(attributes.status);
-  const planId = statusGrantsPaidPlan(status) ? planIdForVariant(attributes.variant_id) : DEFAULT_PLAN_ID;
-
-  const periodEndRaw = attributes.ends_at ?? attributes.renews_at ?? null;
+  const planId = statusGrantsPaidPlan(status) ? planIdForPriceId(attributes.priceId) : DEFAULT_PLAN_ID;
 
   await prisma.organization.update({
     where: { id: organizationId },
     data: {
       plan: planId,
-      lemonSqueezyCustomerId: attributes.customer_id != null ? String(attributes.customer_id) : undefined,
-      lemonSqueezySubscriptionId: subscriptionId,
-      lemonSqueezyVariantId: attributes.variant_id != null ? String(attributes.variant_id) : undefined,
+      paddleCustomerId: attributes.customerId ?? undefined,
+      paddleSubscriptionId: subscriptionId,
+      paddlePriceId: attributes.priceId ?? undefined,
       subscriptionStatus: status,
       billingInterval: "month",
-      currentPeriodStart:
-        eventName === "subscription_created" && attributes.created_at
-          ? new Date(attributes.created_at)
-          : undefined,
-      currentPeriodEnd: periodEndRaw ? new Date(periodEndRaw) : null,
-      cancelAtPeriodEnd: attributes.cancelled === true,
+      currentPeriodStart: attributes.currentPeriodStart ? new Date(attributes.currentPeriodStart) : undefined,
+      currentPeriodEnd: attributes.currentPeriodEnd ? new Date(attributes.currentPeriodEnd) : null,
+      cancelAtPeriodEnd: attributes.cancelAtPeriodEnd === true,
     },
   });
 
@@ -70,7 +59,56 @@ export async function syncSubscriptionState(
     metadata: { plan: planId, status, event: eventName },
   });
 
-  if (eventName === "subscription_created") {
+  if (eventName === "subscription.created") {
     trackEvent("subscription_started", { organizationId });
   }
+}
+
+/**
+ * Records the outcome of a single transaction (a renewal charge or the
+ * initial checkout payment) against the organization's billing status.
+ *
+ * This deliberately never touches `plan` or the period fields — those stay
+ * owned exclusively by `syncSubscriptionState`, which Paddle always sends a
+ * companion `subscription.*` event for. A failed payment flips the status to
+ * `past_due` immediately (rather than waiting on a possible later
+ * `subscription.past_due` event) so the billing page reflects it as soon as
+ * possible; a completed payment clears `past_due` back to `active` if that
+ * was the prior state (dunning recovery). Both are idempotent no-ops if the
+ * status already reflects the outcome.
+ */
+export async function recordTransactionOutcome(
+  organizationId: string,
+  outcome: "succeeded" | "failed",
+  eventName: string
+): Promise<void> {
+  const organization = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { subscriptionStatus: true },
+  });
+  if (!organization) return;
+
+  const nextStatus =
+    outcome === "failed"
+      ? "past_due"
+      : organization.subscriptionStatus === "past_due"
+        ? "active"
+        : organization.subscriptionStatus;
+
+  if (nextStatus !== organization.subscriptionStatus) {
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { subscriptionStatus: nextStatus },
+    });
+  }
+
+  await recordAuditEvent(prisma, {
+    organizationId,
+    actorType: "SYSTEM",
+    eventType: AUDIT_EVENT_TYPES.BILLING_PLAN_CHANGED,
+    entityType: "Organization",
+    entityId: organizationId,
+    action: outcome === "failed" ? "billing.payment_failed" : "billing.payment_succeeded",
+    metadata: { event: eventName },
+  });
 }

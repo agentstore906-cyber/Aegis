@@ -29,8 +29,8 @@ aspirational automated one.
 
 This repo doesn't prescribe a staging environment — none is configured here.
 If you run one, it should be a separate `DATABASE_URL` and, if billing is
-enabled, a separate Lemon Squeezy **test-mode** store (never point a staging
-environment at a live Lemon Squeezy store or a production database).
+enabled, a separate Paddle **sandbox** account (never point a staging
+environment at a live Paddle account or a production database).
 
 ## What's missing, honestly
 

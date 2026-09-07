@@ -28,17 +28,17 @@ database is reachable again — Prisma reconnects on the next query.
 **Out of scope today:** No read replica, no automatic failover to a standby,
 no request queueing/buffering during an outage.
 
-## Lemon Squeezy unavailable
+## Paddle unavailable
 
-**What happens:** `isBillingConfigured()` (`lib/billing/lemonsqueezy.ts`)
-degrades to "not configured" when the env vars are absent; a genuine Lemon
-Squeezy *outage* (vs. not configured) means checkout and customer-portal
-link creation fail, and webhook deliveries are delayed. Existing
-subscriptions already reflected in `Organization.plan`/`subscriptionStatus`
-(the local mirror of Lemon Squeezy's state — see `prisma/schema.prisma`'s
-Billing section) are unaffected — Aegis enforces entitlements from that
-local field, not a live API call on every request, so an outage doesn't
-degrade existing customers' access.
+**What happens:** `isBillingConfigured()` (`lib/billing/paddle.ts`)
+degrades to "not configured" when the env vars are absent; a genuine Paddle
+*outage* (vs. not configured) means checkout and customer-portal link
+creation fail, and webhook deliveries are delayed. Existing subscriptions
+already reflected in `Organization.plan`/`subscriptionStatus` (the local
+mirror of Paddle's state — see `prisma/schema.prisma`'s Billing section)
+are unaffected — Aegis enforces entitlements from that local field, not a
+live API call on every request, so an outage doesn't degrade existing
+customers' access.
 
 **Recovery:** Nothing to do on Aegis's side beyond waiting for Lemon
 Squeezy. Its webhooks retry on failure, and processing is idempotent (the

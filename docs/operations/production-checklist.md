@@ -17,7 +17,7 @@ deployment-time configuration this repo can't do on its own behalf.
 
 ## Security
 
-- [ ] Secrets configured (`AUTH_SECRET`, `DATABASE_URL`, `LEMONSQUEEZY_*`
+- [ ] Secrets configured (`AUTH_SECRET`, `DATABASE_URL`, `PADDLE_*`
       if billing is enabled, `PLATFORM_ADMIN_EMAILS` if `/admin` is needed) —
       deployment-time, see `docs/operations/environment.md`.
 - [x] Authentication verified — bcrypt (cost 12) password hashing, JWT
@@ -34,9 +34,9 @@ deployment-time configuration this repo can't do on its own behalf.
       `lib/approvals`, `lib/security`, `lib/policies`, `app/api/v1`.
 - [x] API keys secure — hash-only storage, revocation/expiry/scope enforced
       centrally in `withApiAuth` (`lib/api/handler.ts`), never logged raw.
-- [x] Webhooks verified — inbound Lemon Squeezy `X-Signature`-verified +
+- [x] Webhooks verified — inbound Paddle `Paddle-Signature`-verified +
       idempotent + tenant-scoped; outbound HMAC-signed + SSRF-checked. See
-      `app/api/webhooks/lemonsqueezy/__tests__/route.test.ts` and
+      `app/api/webhooks/paddle/__tests__/route.test.ts` and
       `lib/webhooks/__tests__/`.
 - [x] Rate limiting configured — public API (`lib/api/handler.ts`), lead
       form (`lib/leads/service.ts`), and now sign-in/sign-up. **Known
@@ -58,7 +58,7 @@ deployment-time configuration this repo can't do on its own behalf.
 
 ## Billing
 
-- [ ] Lemon Squeezy configured (if self-serve billing is enabled) —
+- [ ] Paddle configured (if self-serve billing is enabled) —
       deployment-time; app runs fully without it (`docs/deployment.md` §2).
 - [x] Webhooks verified — signature + idempotency + tenant isolation +
       lifecycle mapping tested against synthetic events (`docs/deployment.md`

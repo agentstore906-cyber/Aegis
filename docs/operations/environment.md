@@ -10,16 +10,16 @@ environment needs.
 - `DATABASE_URL`
 - `AUTH_SECRET`
 - `AUTH_URL` (production only — auto-detected in dev)
-- `NEXT_PUBLIC_APP_URL` (optional — post-checkout redirect origin; falls back to `AUTH_URL`)
 
 ## Optional — degrades gracefully, feature-scoped
 
 - `PLATFORM_ADMIN_EMAILS` — unset means `/admin` is unreachable by anyone,
   not open to everyone. Fails closed.
-- `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_WEBHOOK_SECRET`,
-  `LEMONSQUEEZY_STARTUP_VARIANT_ID` / `LEMONSQUEEZY_GROWTH_VARIANT_ID` /
-  `LEMONSQUEEZY_BUSINESS_VARIANT_ID` — unset means billing shows "not
-  configured," every org stays on Free.
+- `PADDLE_API_KEY`, `PADDLE_CLIENT_TOKEN`, `PADDLE_WEBHOOK_SECRET`,
+  `PADDLE_ENVIRONMENT`, `PADDLE_STARTUP_PRODUCT_ID` / `PADDLE_STARTUP_PRICE_ID` /
+  `PADDLE_GROWTH_PRODUCT_ID` / `PADDLE_GROWTH_PRICE_ID` /
+  `PADDLE_BUSINESS_PRODUCT_ID` / `PADDLE_BUSINESS_PRICE_ID` — unset means
+  billing shows "not configured," every org stays on Free.
 - `NEXT_PUBLIC_CONTACT_EMAIL` — unset means the `/trust` responsible-disclosure
   section and `/contact` say so explicitly instead of showing a broken/fake
   contact path (`app/(marketing)/trust/page.tsx`).

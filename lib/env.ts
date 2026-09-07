@@ -6,10 +6,10 @@ import { z } from "zod";
  * instead of surfacing later as an opaque Prisma/NextAuth error deep in a
  * request. Imported from `lib/db.ts`, which every request already touches.
  *
- * Optional integration variables (Lemon Squeezy, future OAuth) are
+ * Optional integration variables (Paddle, future OAuth) are
  * intentionally NOT required here — the app must boot without them; each
  * integration checks its own variables lazily where it's actually used
- * (see `lib/billing/lemonsqueezy.ts`) and degrades to "not configured"
+ * (see `lib/billing/paddle.ts`) and degrades to "not configured"
  * rather than failing the whole app. See docs/deployment.md for the full
  * variable list.
  */

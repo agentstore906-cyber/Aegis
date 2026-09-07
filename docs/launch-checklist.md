@@ -45,17 +45,16 @@ trail by trace id.
       `lib/billing/plans.ts`.
 - [x] Entitlements — enforced server-side at every creation path, not
       just displayed.
-- [ ] Lemon Squeezy test mode — the integration is real, working code
-      with signature-verification, idempotency, tenant-isolation and
-      lifecycle tests using synthetic events, but **has not been
-      exercised against a live Lemon Squeezy test-mode store** — this
-      environment has no credentials.
-- [x] Webhooks — `X-Signature` HMAC verification + idempotent, absolute-
-      state handling for the `subscription_*` events, tested with
-      synthetic signed payloads.
+- [ ] Paddle sandbox — the integration is real, working code with
+      signature-verification, idempotency, tenant-isolation and lifecycle
+      tests using synthetic events, but **has not been exercised against a
+      live Paddle sandbox account** — this environment has no credentials.
+- [x] Webhooks — `Paddle-Signature` HMAC verification + idempotent,
+      absolute-state handling for `subscription.*`/`transaction.*` events,
+      tested with synthetic signed payloads.
 - [x] Billing UI — `/settings/billing` shows real usage against real
-      limits; shows an honest "not configured" state when Lemon Squeezy
-      isn't set up.
+      limits; shows an honest "not configured" state when Paddle isn't set
+      up.
 
 ## Marketing
 

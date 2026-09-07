@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { canViewBilling, canManageBilling } from "@/lib/billing/authorization";
 import { getPlan, PLANS, type PlanId } from "@/lib/billing/plans";
-import { isBillingConfigured } from "@/lib/billing/lemonsqueezy";
+import { isBillingConfigured } from "@/lib/billing/paddle";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -13,7 +13,10 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { BillingUpgradeButton } from "@/components/settings/billing-upgrade-button";
+import { PaddleCheckoutProvider } from "@/components/settings/paddle-checkout-provider";
 import { BillingPortalButton } from "@/components/settings/billing-portal-button";
+import { BillingChangePlanButton } from "@/components/settings/billing-change-plan-button";
+import { BillingCancelButton } from "@/components/settings/billing-cancel-button";
 import { UsageBar } from "@/components/billing/usage-bar";
 
 export const metadata: Metadata = { title: "Billing" };
@@ -23,8 +26,7 @@ const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> 
   trialing: "success",
   past_due: "warning",
   paused: "warning",
-  unpaid: "danger",
-  cancelled: "neutral",
+  cancelled: "danger",
   expired: "danger",
 };
 
@@ -47,9 +49,9 @@ export default async function BillingPage({
   const plan = getPlan(organization.plan);
   const configured = isBillingConfigured();
   const canManage = canManageBilling(role);
-  const hasSubscription = Boolean(organization.lemonSqueezySubscriptionId);
+  const hasSubscription = Boolean(organization.paddleSubscriptionId);
   const otherPlans = (Object.keys(PLANS) as PlanId[])
-    .filter((id) => id !== plan.id && id !== "enterprise")
+    .filter((id) => id !== plan.id && id !== "enterprise" && id !== "free")
     .map((id) => PLANS[id]);
 
   return (
@@ -58,19 +60,16 @@ export default async function BillingPage({
 
       {checkout === "success" && (
         <Alert tone="info">
-          Payment received. We&rsquo;re confirming your subscription with Lemon Squeezy — this page
-          will show the new plan within a minute. You can safely refresh.
+          Payment received. We&rsquo;re confirming your subscription with Paddle — this page will
+          show the new plan within a minute. You can safely refresh.
         </Alert>
-      )}
-      {checkout === "cancelled" && (
-        <Alert tone="warning">Checkout was cancelled — your plan hasn&rsquo;t changed.</Alert>
       )}
 
       {!configured && (
         <Alert tone="info">
-          Billing is not configured in this environment — no Lemon Squeezy credentials are set. Plan
-          limits are still enforced below; subscribing requires a deployment with{" "}
-          <code>LEMONSQUEEZY_API_KEY</code> configured. See docs/deployment.md.
+          Billing is not configured in this environment — no Paddle credentials are set. Plan limits
+          are still enforced below; subscribing requires a deployment with <code>PADDLE_API_KEY</code>{" "}
+          configured. See docs/deployment.md.
         </Alert>
       )}
 
@@ -79,7 +78,7 @@ export default async function BillingPage({
           <CardTitle>Current plan</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2">
                 <p className="text-lg font-semibold text-foreground">{plan.name}</p>
@@ -98,8 +97,18 @@ export default async function BillingPage({
                   {formatDateTime(organization.currentPeriodEnd)}
                 </p>
               )}
+              {organization.cancelAtPeriodEnd && (
+                <p className="mt-2 text-xs font-medium text-warning">
+                  Cancellation scheduled — you&rsquo;ll keep {plan.name} access until then.
+                </p>
+              )}
             </div>
-            {canManage && hasSubscription && configured && <BillingPortalButton />}
+            {canManage && hasSubscription && configured && (
+              <div className="flex items-center gap-2">
+                <BillingPortalButton />
+                {!organization.cancelAtPeriodEnd && <BillingCancelButton />}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -116,43 +125,47 @@ export default async function BillingPage({
       </Card>
 
       {canManage && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{hasSubscription ? "Change plan" : "Subscribe"}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {otherPlans.map((candidate) => (
-                <div key={candidate.id} className="rounded-lg border border-border p-4">
-                  <p className="text-sm font-semibold text-foreground">{candidate.name}</p>
-                  <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
-                    {candidate.priceCents === null ? "Custom" : formatCurrency(candidate.priceCents)}
-                    {candidate.priceCents !== null && (
-                      <span className="text-xs font-normal text-muted-foreground">/mo</span>
-                    )}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {candidate.agentLimit ?? "Unlimited"} agents · {candidate.memberLimit ?? "Unlimited"} members
-                  </p>
-                  <div className="mt-3">
-                    {configured && candidate.lemonSqueezyVariantId ? (
-                      <BillingUpgradeButton
-                        planId={candidate.id}
-                        label={`Subscribe to ${candidate.name}`}
-                      />
-                    ) : (
-                      <p className="text-xs text-muted-foreground">Contact us to upgrade.</p>
-                    )}
+        <PaddleCheckoutProvider>
+          <Card>
+            <CardHeader>
+              <CardTitle>{hasSubscription ? "Change plan" : "Subscribe"}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {otherPlans.map((candidate) => (
+                  <div key={candidate.id} className="rounded-lg border border-border p-4">
+                    <p className="text-sm font-semibold text-foreground">{candidate.name}</p>
+                    <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                      {candidate.priceCents === null ? "Custom" : formatCurrency(candidate.priceCents)}
+                      {candidate.priceCents !== null && (
+                        <span className="text-xs font-normal text-muted-foreground">/mo</span>
+                      )}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {candidate.agentLimit ?? "Unlimited"} agents · {candidate.memberLimit ?? "Unlimited"} members
+                    </p>
+                    <div className="mt-3">
+                      {configured && candidate.paddlePriceId ? (
+                        hasSubscription ? (
+                          <BillingChangePlanButton planId={candidate.id} label={`Switch to ${candidate.name}`} />
+                        ) : (
+                          <BillingUpgradeButton planId={candidate.id} label={`Subscribe to ${candidate.name}`} />
+                        )
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Contact us to upgrade.</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-            <p className="mt-4 text-xs text-muted-foreground">
-              Payments are processed by Lemon Squeezy. Your plan changes once their confirmation
-              webhook reaches Aegis — not on the redirect back from checkout.
-            </p>
-          </CardContent>
-        </Card>
+                ))}
+              </div>
+              <p className="mt-4 text-xs text-muted-foreground">
+                Payments are processed by Paddle, our Merchant of Record, via a secure checkout overlay.
+                Aegis never stores your card details. New checkouts and cancellations take effect once
+                Paddle&rsquo;s confirmation webhook reaches Aegis.
+              </p>
+            </CardContent>
+          </Card>
+        </PaddleCheckoutProvider>
       )}
     </div>
   );

@@ -40,11 +40,11 @@ block a real customer, not by build effort:
   onto a durable queue with real retries (`docs/webhooks.md`). A real
   infrastructure decision (cron trigger vs. queue worker), not a small
   patch — don't build a bespoke one for a single feature.
-- **Lemon Squeezy verified against a real test-mode store** — the
-  integration is real (`X-Signature` verification + idempotency + tenant
-  isolation + lifecycle mapping, tested against synthetic events), just
-  never exercised against Lemon Squeezy itself in this environment. Table
-  stakes before real billing.
+- **Paddle verified against a real sandbox account** — the integration is
+  real (`Paddle-Signature` verification + idempotency + tenant isolation +
+  lifecycle mapping, tested against synthetic events), just never exercised
+  against Paddle itself in this environment. Table stakes before real
+  billing.
 
 ## Later
 

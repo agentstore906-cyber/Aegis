@@ -25,12 +25,16 @@ export interface PlanConfig {
   auditExport: boolean;
   webhooks: boolean;
   /**
-   * Lemon Squeezy variant id, resolved from env at import time so a plan
-   * with no configured variant simply can't be checked out (the checkout
+   * Paddle product/price id, resolved from env at import time so a plan
+   * with no configured price simply can't be checked out (the checkout
    * action fails with a clear "not available for self-serve" error rather
-   * than sending an empty id to Lemon Squeezy) — see lib/billing/actions.ts.
+   * than sending an empty id to Paddle) — see lib/billing/actions.ts. The
+   * product id isn't used in any API call today (Paddle checkout only needs
+   * the price id) but is kept alongside it for dashboard cross-reference and
+   * so a half-configured plan (price set, product not) is easy to spot.
    */
-  lemonSqueezyVariantId: string | null;
+  paddleProductId: string | null;
+  paddlePriceId: string | null;
 }
 
 export const PLANS: Record<PlanId, PlanConfig> = {
@@ -45,7 +49,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     advancedPolicies: false,
     auditExport: false,
     webhooks: false,
-    lemonSqueezyVariantId: null,
+    paddleProductId: null,
+    paddlePriceId: null,
   },
   startup: {
     id: "startup",
@@ -58,7 +63,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     advancedPolicies: true,
     auditExport: false,
     webhooks: true,
-    lemonSqueezyVariantId: process.env.LEMONSQUEEZY_STARTUP_VARIANT_ID ?? null,
+    paddleProductId: process.env.PADDLE_STARTUP_PRODUCT_ID ?? null,
+    paddlePriceId: process.env.PADDLE_STARTUP_PRICE_ID ?? null,
   },
   growth: {
     id: "growth",
@@ -71,7 +77,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     advancedPolicies: true,
     auditExport: true,
     webhooks: true,
-    lemonSqueezyVariantId: process.env.LEMONSQUEEZY_GROWTH_VARIANT_ID ?? null,
+    paddleProductId: process.env.PADDLE_GROWTH_PRODUCT_ID ?? null,
+    paddlePriceId: process.env.PADDLE_GROWTH_PRICE_ID ?? null,
   },
   business: {
     id: "business",
@@ -84,7 +91,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     advancedPolicies: true,
     auditExport: true,
     webhooks: true,
-    lemonSqueezyVariantId: process.env.LEMONSQUEEZY_BUSINESS_VARIANT_ID ?? null,
+    paddleProductId: process.env.PADDLE_BUSINESS_PRODUCT_ID ?? null,
+    paddlePriceId: process.env.PADDLE_BUSINESS_PRICE_ID ?? null,
   },
   enterprise: {
     id: "enterprise",
@@ -97,7 +105,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     advancedPolicies: true,
     auditExport: true,
     webhooks: true,
-    lemonSqueezyVariantId: null,
+    paddleProductId: null,
+    paddlePriceId: null,
   },
 };
 

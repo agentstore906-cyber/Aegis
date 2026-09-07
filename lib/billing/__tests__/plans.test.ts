@@ -34,18 +34,18 @@ describe("PLANS", () => {
     expect(PLANS.enterprise.priceCents).toBeNull();
   });
 
-  it("Free has no Lemon Squeezy variant (never checked out) while paid plans read theirs from env", () => {
-    expect(PLANS.free.lemonSqueezyVariantId).toBeNull();
+  it("Free has no Paddle price (never checked out) while paid plans read theirs from env", () => {
+    expect(PLANS.free.paddlePriceId).toBeNull();
   });
 });
 
 describe("PLANS as a checkout allowlist", () => {
-  // createCheckoutSessionAction (lib/billing/actions.ts) resolves the Lemon
-  // Squeezy variant to charge via `PLANS[planId as PlanId]` — a client-
-  // supplied planId is a plain string, so this is the actual mechanism that
-  // prevents a tampered request from ever resolving to an attacker-chosen
-  // amount: an unrecognized id must resolve to `undefined`, not fall back to
-  // any real plan's variant.
+  // createCheckoutSessionAction (lib/billing/actions.ts) resolves the Paddle
+  // price to charge via `PLANS[planId as PlanId]` — a client-supplied
+  // planId is a plain string, so this is the actual mechanism that prevents
+  // a tampered request from ever resolving to an attacker-chosen amount: an
+  // unrecognized id must resolve to `undefined`, not fall back to any real
+  // plan's price.
   it("does not resolve an unrecognized/tampered plan id to any configured plan", () => {
     expect(PLANS["not-a-real-plan" as PlanId]).toBeUndefined();
     expect(PLANS["../free" as PlanId]).toBeUndefined();

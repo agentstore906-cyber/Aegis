@@ -21,6 +21,34 @@ security fix is noted as "hardened," not described in exploit detail.
   `arena_challenge_attributions`, `arena_analytics_events`) with no Prisma
   relations or foreign keys into any legacy model — nothing existing is
   modified. See `docs/agent-arena.md`.
+- **Billing provider switched from Lemon Squeezy to Paddle Billing.** New
+  subscriptions open through Paddle's client-side checkout overlay
+  (Paddle.js, initialized from the publishable `PADDLE_CLIENT_TOKEN` via
+  `GET /api/billing/config`) rather than a server-redirect — Paddle
+  Billing requires a dashboard-configured "default payment link" before a
+  server-created Transaction will even return a checkout URL, so the
+  overlay is what actually works without extra manual Paddle Dashboard
+  setup and lets the return-to-app URL be set dynamically per checkout.
+  The price id is still resolved server-side from `PLANS` in
+  `createCheckoutSessionAction`, never trusted from the client; the
+  browser only ever receives the one price/customer id that action
+  resolved. Plus on-demand customer-portal sessions, subscription
+  cancel/change-plan actions (server-to-server, no checkout UI needed),
+  and a `Paddle-Signature`-verified, idempotent webhook at
+  `/api/webhooks/paddle` (`lib/billing/paddle.ts`, `lib/billing/sync.ts`),
+  built on the official `@paddle/paddle-node-sdk`. New
+  `GET /api/billing/subscription` route for reading the caller's own
+  subscription state. The CSP (`next.config.ts`) now allows Paddle's
+  script, checkout-iframe, and API origins — the only third-party origin
+  in the policy. Plan config, entitlements, authorization, and the
+  `/settings/billing` page are otherwise unchanged in shape — only the
+  provider under them, plus new "Cancel subscription" and "Switch plan"
+  controls. The Lemon Squeezy client and route were removed. Migration
+  `20260907130000_replace_lemonsqueezy_with_paddle` renames the three
+  Lemon Squeezy id columns to their Paddle equivalents
+  (`paddleCustomerId`, `paddleSubscriptionId`, `paddlePriceId`); no data
+  is dropped. Unlike Lemon Squeezy, Paddle notifications carry a stable
+  `event_id`, so webhook dedup no longer needs a synthetic digest.
 - **Billing provider switched from Stripe to Lemon Squeezy.** Hosted
   checkout, on-demand customer-portal links, and an `X-Signature`
   HMAC-verified, idempotent webhook at `/api/webhooks/lemonsqueezy`

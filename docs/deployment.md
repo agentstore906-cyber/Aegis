@@ -37,17 +37,25 @@ into `/admin` (internal-only, not an organization role — see
 |---|---|
 | `PLATFORM_ADMIN_EMAILS` | Comma-separated emails allowed into `/admin` |
 
-**Optional — billing (Lemon Squeezy).** The app runs fully without these;
+**Optional — billing (Paddle Billing).** The app runs fully without these;
 `/settings/billing` shows "not configured" and every org stays on Free.
-See [§6](#6-lemon-squeezy-webhook-configuration).
+See [§6](#6-paddle-webhook-configuration).
 
 | Variable | Purpose |
 |---|---|
-| `LEMONSQUEEZY_API_KEY` | Server-side API key (Settings → API) |
-| `LEMONSQUEEZY_STORE_ID` | Numeric store id (Settings → Stores) |
-| `LEMONSQUEEZY_WEBHOOK_SECRET` | Verifies `POST /api/webhooks/lemonsqueezy` signatures (the secret you set when creating the webhook) |
-| `LEMONSQUEEZY_STARTUP_VARIANT_ID` / `LEMONSQUEEZY_GROWTH_VARIANT_ID` / `LEMONSQUEEZY_BUSINESS_VARIANT_ID` | Numeric **variant** id of each plan's product — see `lib/billing/plans.ts` |
-| `NEXT_PUBLIC_APP_URL` | Public origin, used to build the post-checkout redirect URL (falls back to `AUTH_URL`) |
+| `PADDLE_API_KEY` | Server-side API key (Developer tools → Authentication) — never sent to the client |
+| `PADDLE_CLIENT_TOKEN` | Publishable client-side token (same page) — safe to expose to a browser by Paddle's own design; required to open the Paddle.js checkout overlay (served to the browser via `GET /api/billing/config`, never `PADDLE_API_KEY`) |
+| `PADDLE_WEBHOOK_SECRET` | Verifies `POST /api/webhooks/paddle` signatures (the secret shown when creating the notification destination) |
+| `PADDLE_ENVIRONMENT` | `sandbox` or `production` — selects which Paddle API/dashboard the server SDK talks to |
+| `PADDLE_STARTUP_PRODUCT_ID` / `PADDLE_STARTUP_PRICE_ID` | Startup plan's Paddle product + price id (Catalog → Products) |
+| `PADDLE_GROWTH_PRODUCT_ID` / `PADDLE_GROWTH_PRICE_ID` | Growth plan's Paddle product + price id |
+| `PADDLE_BUSINESS_PRODUCT_ID` / `PADDLE_BUSINESS_PRICE_ID` | Business plan's Paddle product + price id |
+
+Only the price id is used in any API call (checkout only needs a price);
+the product id is kept alongside it in `lib/billing/plans.ts` purely so a
+half-configured plan (price set, product not, or vice versa) is easy to
+spot when reading the config. There is no Enterprise price — that plan is
+"Contact sales" only, deliberately never wired to a Paddle checkout.
 
 **Optional — future OAuth.** Not required; credentials (email+password)
 auth works standalone. See `.env.example`.
@@ -96,47 +104,49 @@ enables `Strict-Transport-Security` in the security headers (see
 `next.config.ts`) and disables the local-only HTTP carve-out in
 `lib/webhooks/ssrf.ts`'s webhook-URL validator.
 
-## 6. Lemon Squeezy webhook configuration
+## 6. Paddle webhook configuration
 
-If billing is enabled (§2), create a webhook in **Lemon Squeezy →
-Settings → Webhooks** pointing at:
+If billing is enabled (§2), create a notification destination in **Paddle
+→ Developer tools → Notifications** pointing at:
 
 ```
-https://<your-domain>/api/webhooks/lemonsqueezy
+https://<your-domain>/api/webhooks/paddle
 ```
 
-Set a signing secret and copy it into `LEMONSQUEEZY_WEBHOOK_SECRET`.
-Subscribe it to the `subscription_*` events (at minimum
-`subscription_created`, `subscription_updated`, `subscription_cancelled`,
-`subscription_resumed`, `subscription_expired`, `subscription_paused`,
-`subscription_unpaused`, `subscription_payment_failed`,
-`subscription_payment_success`, `subscription_payment_recovered`).
+Copy its signing secret into `PADDLE_WEBHOOK_SECRET`. Subscribe it to at
+least: `subscription.created`, `subscription.updated`,
+`subscription.canceled`, `transaction.completed`,
+`transaction.payment_failed`. Other event types are safely ignored (the
+endpoint acknowledges them with 200 so Paddle doesn't retry them forever).
 
-The endpoint verifies the `X-Signature` HMAC-SHA256 before touching the
-database (`app/api/webhooks/lemonsqueezy/route.ts`). Lemon Squeezy
-payloads carry no event id, so replays are deduplicated on a digest of
-(event name + subscription id + the resource's `updated_at`)
-(`BillingWebhookEvent` table); handling is also written to set absolute
-state, so an out-of-order or duplicated event still converges.
-**Verified with signature-verification, idempotency, tenant-isolation and
-lifecycle tests using synthetic events
-(`app/api/webhooks/lemonsqueezy/__tests__/route.test.ts`), not against a
-live Lemon Squeezy store.** Run one real checkout → webhook → plan-change
-round trip against a Lemon Squeezy **test-mode** store before relying on
-it in production.
+The endpoint verifies the `Paddle-Signature` header via the official
+`@paddle/paddle-node-sdk`'s `webhooks.unmarshal` (HMAC-SHA256 of
+`timestamp:rawBody`, constant-time compared, with a replay-window check)
+before touching the database (`app/api/webhooks/paddle/route.ts`). Paddle
+notifications carry a stable `event_id`, so replays are deduplicated
+directly on that id (`BillingWebhookEvent` table);
+handling is also written to set absolute state (never deltas), so an
+out-of-order or duplicated event still converges. **Verified with
+signature-verification, idempotency, tenant-isolation and lifecycle tests
+using synthetic events (`app/api/webhooks/paddle/__tests__/route.test.ts`),
+not against a live Paddle account.** Run one real checkout → webhook →
+plan-change round trip against a Paddle **sandbox** account before relying
+on it in production.
 
-### Switching from test mode to live
+### Switching from sandbox to production
 
-1. In Lemon Squeezy, toggle the store out of **Test mode**.
-2. Create the live product + variants (or publish the test ones). Copy the
-   live **variant** ids into `LEMONSQUEEZY_*_VARIANT_ID`.
-3. Generate a **live** API key (Settings → API) → `LEMONSQUEEZY_API_KEY`.
-4. Create a **live** webhook at the same `/api/webhooks/lemonsqueezy` URL
-   with a fresh signing secret → `LEMONSQUEEZY_WEBHOOK_SECRET`.
-5. Set `LEMONSQUEEZY_STORE_ID` to the same store (the id doesn't change
-   between modes) and `NEXT_PUBLIC_APP_URL` to the production origin.
-6. Redeploy. No code or schema change is required — every Lemon Squeezy
-   value is read from the environment.
+1. Create the live product + prices in **Paddle → Catalog → Products**
+   (sandbox and production are entirely separate Paddle accounts/catalogs —
+   there's no "publish" step between them). Copy the live product/price ids
+   into `PADDLE_*_PRODUCT_ID` / `PADDLE_*_PRICE_ID`.
+2. Generate a **live** API key and client token (Developer tools →
+   Authentication) → `PADDLE_API_KEY`, `PADDLE_CLIENT_TOKEN`.
+3. Create a **live** notification destination at the same
+   `/api/webhooks/paddle` URL with a fresh signing secret →
+   `PADDLE_WEBHOOK_SECRET`.
+4. Set `PADDLE_ENVIRONMENT="production"`.
+5. Redeploy. No code or schema change is required — every Paddle value is
+   read from the environment.
 
 ## 7. API base URL
 
