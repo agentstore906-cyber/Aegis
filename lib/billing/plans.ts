@@ -55,7 +55,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
   startup: {
     id: "startup",
     name: "Startup",
-    priceCents: 9900,
+    priceCents: 500,
     agentLimit: 25,
     memberLimit: 5,
     apiKeyLimit: 5,
