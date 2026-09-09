@@ -13,13 +13,23 @@ import {
   Webhook,
   MessageSquarePlus,
   Swords,
+  CreditCard,
 } from "lucide-react";
+
+import type { Capability } from "@/lib/rbac/capabilities";
 
 export type NavItem = {
   label: string;
   href: string;
   icon: LucideIcon;
   status: "active" | "soon";
+  /**
+   * When set, the item is only rendered for members whose role holds this
+   * capability (see lib/rbac/capabilities.ts). The linked page still enforces
+   * the same check server-side — this only keeps the nav honest so, e.g., an
+   * Engineer isn't shown a Billing link that would 404 for them.
+   */
+  capability?: Capability;
 };
 
 export const NAV_ITEMS: NavItem[] = [
@@ -35,5 +45,6 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Integrations", href: "/integrations", icon: Webhook, status: "active" },
   { label: "Developers", href: "/developers", icon: Terminal, status: "active" },
   { label: "Feedback", href: "/feedback", icon: MessageSquarePlus, status: "active" },
+  { label: "Billing", href: "/settings/billing", icon: CreditCard, status: "active", capability: "view_billing" },
   { label: "Settings", href: "/settings/organization", icon: Settings, status: "active" },
 ];

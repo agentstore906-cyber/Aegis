@@ -3,15 +3,16 @@ import { Sidebar } from "@/components/dashboard/sidebar";
 import { Topbar } from "@/components/dashboard/topbar";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, organization } = await requireActiveOrganization();
+  const { user, organization, role } = await requireActiveOrganization();
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
+      <Sidebar role={role} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
           organizationName={organization.name}
           plan={organization.plan}
+          role={role}
           userName={user.name ?? user.email}
           userEmail={user.email}
         />

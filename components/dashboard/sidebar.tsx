@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { MemberRole } from "@prisma/client";
 import { Logo } from "@/components/ui/logo";
 import { NAV_ITEMS } from "@/lib/dashboard-nav";
+import { hasCapability } from "@/lib/rbac/capabilities";
 import { cn } from "@/lib/utils";
 
-export function Sidebar() {
+export function Sidebar({ role }: { role: MemberRole }) {
   const pathname = usePathname();
+  const items = NAV_ITEMS.filter((item) => !item.capability || hasCapability(role, item.capability));
 
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-surface lg:flex">
@@ -18,7 +21,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4" aria-label="Dashboard">
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
 

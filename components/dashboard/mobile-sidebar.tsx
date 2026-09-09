@@ -3,12 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { MemberRole } from "@prisma/client";
 import { Menu, X } from "lucide-react";
 import { Logo } from "@/components/ui/logo";
 import { NAV_ITEMS } from "@/lib/dashboard-nav";
+import { hasCapability } from "@/lib/rbac/capabilities";
 import { cn } from "@/lib/utils";
 
-export function MobileSidebar() {
+export function MobileSidebar({ role }: { role: MemberRole }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -38,7 +40,10 @@ export function MobileSidebar() {
               </button>
             </div>
             <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto" aria-label="Dashboard">
-              {NAV_ITEMS.filter((item) => item.status === "active").map((item) => {
+              {NAV_ITEMS.filter(
+                (item) =>
+                  item.status === "active" && (!item.capability || hasCapability(role, item.capability))
+              ).map((item) => {
                 const isActive = pathname.startsWith(item.href);
                 return (
                   <Link
