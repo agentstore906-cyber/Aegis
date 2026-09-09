@@ -4,7 +4,7 @@ import path from "node:path";
 
 export default defineConfig(({ mode }) => ({
   test: {
-    include: ["lib/**/*.test.ts", "app/**/*.test.ts"],
+    include: ["lib/**/*.test.ts", "app/**/*.test.ts", "components/**/*.test.{ts,tsx}"],
     // Explicit, not incidental: test workers need DATABASE_URL/AUTH_SECRET
     // (lib/env.ts validates both eagerly on import) and now also feed
     // lib/db.ts's @prisma/adapter-pg connection string. `""` as the third
