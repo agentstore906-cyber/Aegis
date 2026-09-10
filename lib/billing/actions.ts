@@ -1,6 +1,6 @@
 "use server";
 
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
@@ -28,7 +28,7 @@ const NOT_CONFIGURED_ERROR = "Billing is not configured in this environment. See
 const GENERIC_CHECKOUT_ERROR = "Could not start checkout. Please try again in a moment.";
 
 /** Which step of `createCheckoutSessionAction` a failure happened at — attached to every checkout diagnostic. */
-type CheckoutStage = "config" | "customer_create" | "persist_customer";
+type CheckoutStage = "auth" | "config" | "customer_create" | "persist_customer";
 
 const MISCONFIG_ACTION_HINT =
   "Paddle rejected an authenticated request. Grant the PADDLE_API_KEY the customer/transaction/subscription " +
@@ -44,7 +44,7 @@ const MISCONFIG_ACTION_HINT =
  */
 function logCheckoutDiagnostic(fields: {
   stage: CheckoutStage;
-  organizationId: string;
+  organizationId: string | null;
   planId: string;
   misconfigured?: boolean;
   error?: SafePaddleError;
@@ -77,6 +77,37 @@ function logCheckoutDiagnostic(fields: {
   );
 }
 
+/**
+ * Wraps a billing action so an unexpected throw — a Neon/Prisma runtime
+ * error inside `requireActiveOrganization()`, a config error, a Paddle SDK
+ * error from a path that isn't individually wrapped — becomes a logged,
+ * safe `{ error }` state instead of escaping to the dashboard error
+ * boundary (the bare "something went wrong" screen). Framework control-flow
+ * (`redirect()` / `notFound()`) is always rethrown.
+ */
+async function guardBillingAction(
+  operation: string,
+  fallbackError: string,
+  run: () => Promise<BillingActionState>
+): Promise<BillingActionState> {
+  try {
+    return await run();
+  } catch (error) {
+    unstable_rethrow(error);
+    console.error(
+      JSON.stringify({
+        msg: "billing_action_uncaught",
+        operation,
+        provider: "paddle",
+        environment: resolvePaddleEnvironmentForLog(),
+        paddleEnvironmentVar: process.env.PADDLE_ENVIRONMENT?.trim().toLowerCase() ?? null,
+        error: describePaddleError(error),
+      })
+    );
+    return { error: fallbackError };
+  }
+}
+
 /** Non-secret parameters the client feeds directly into `Paddle.Checkout.open()` — see components/settings/paddle-checkout-provider.tsx. */
 export type CheckoutSessionParams = {
   priceId: string;
@@ -98,47 +129,59 @@ export type CheckoutSessionState = { error?: string; checkout?: CheckoutSessionP
  * itself confirms was paid, ever changes the organization's plan.
  */
 export async function createCheckoutSessionAction(planId: string): Promise<CheckoutSessionState> {
-  const { organization, user, role } = await requireActiveOrganization();
-  if (!canManageBilling(role)) {
-    return { error: "You don't have permission to manage billing." };
-  }
+  // The ENTIRE body runs inside this guard. A server action that throws
+  // (rather than returning `{ error }`) escapes to the dashboard error
+  // boundary — the user sees a bare "something went wrong" and the operator
+  // gets nothing actionable. The pre-guard version left the auth + Prisma
+  // section (`requireActiveOrganization`) and the Paddle SDK client
+  // construction outside any try/catch, so a Neon runtime error or a
+  // config error there did exactly that. Now every failure is logged with
+  // the stage it happened at and returned as a clean error state.
+  let stage: CheckoutStage = "auth";
+  let organizationId: string | null = null;
 
-  if (!isBillingConfigured()) {
-    return { error: NOT_CONFIGURED_ERROR };
-  }
-
-  // Non-sensitive Paddle config snapshot to the log on the first checkout of
-  // each server instance — makes a misconfigured production deployment
-  // obvious in Vercel Runtime Logs without logging any secret.
-  logPaddleEnvDiagnosticsOnce();
-
-  const plan = PLANS[planId as PlanId];
-  if (!plan || planId === "free" || planId === "enterprise" || !plan.paddlePriceId) {
-    return { error: "This plan isn't available for self-serve checkout. Contact us instead." };
-  }
-
-  // The client only ever sends a plan *id*; the price id is resolved here
-  // from env. Validate its shape before handing it to the browser: a
-  // product id (`pro_…`) pasted into PADDLE_STARTUP_PRICE_ID, a sandbox
-  // price in a live deployment, or a value with stray whitespace would
-  // otherwise fail inside `Paddle.Checkout.open()` client-side with only
-  // the generic error and nothing in the server log.
-  const priceId = plan.paddlePriceId.trim();
-  if (!isValidPaddlePriceId(priceId)) {
-    logCheckoutDiagnostic({
-      stage: "config",
-      organizationId: organization.id,
-      planId,
-      priceIdPrefix: priceId.slice(0, 4) || null,
-      detail: "configured Paddle price id is not a valid `pri_…` id — check this plan's PADDLE_*_PRICE_ID env var",
-    });
-    return { error: GENERIC_CHECKOUT_ERROR };
-  }
-
-  let stage: CheckoutStage = "customer_create";
-  let customerId: string;
   try {
-    customerId = await ensurePaddleCustomer({
+    const { organization, user, role } = await requireActiveOrganization();
+    organizationId = organization.id;
+
+    if (!canManageBilling(role)) {
+      return { error: "You don't have permission to manage billing." };
+    }
+    if (!isBillingConfigured()) {
+      return { error: NOT_CONFIGURED_ERROR };
+    }
+
+    // Non-sensitive Paddle config snapshot to the log on the first checkout
+    // of each server instance — makes a misconfigured production deployment
+    // obvious in Vercel Runtime Logs without logging any secret.
+    logPaddleEnvDiagnosticsOnce();
+
+    stage = "config";
+    const plan = PLANS[planId as PlanId];
+    if (!plan || planId === "free" || planId === "enterprise" || !plan.paddlePriceId) {
+      return { error: "This plan isn't available for self-serve checkout. Contact us instead." };
+    }
+
+    // The client only ever sends a plan *id*; the price id is resolved here
+    // from env. Validate its shape before handing it to the browser: a
+    // product id (`pro_…`) pasted into PADDLE_STARTUP_PRICE_ID, a sandbox
+    // price in a live deployment, or a value with stray whitespace would
+    // otherwise fail inside `Paddle.Checkout.open()` client-side with only
+    // the generic error and nothing in the server log.
+    const priceId = plan.paddlePriceId.trim();
+    if (!isValidPaddlePriceId(priceId)) {
+      logCheckoutDiagnostic({
+        stage: "config",
+        organizationId,
+        planId,
+        priceIdPrefix: priceId.slice(0, 4) || null,
+        detail: "configured Paddle price id is not a valid `pri_…` id — check this plan's PADDLE_*_PRICE_ID env var",
+      });
+      return { error: GENERIC_CHECKOUT_ERROR };
+    }
+
+    stage = "customer_create";
+    const customerId = await ensurePaddleCustomer({
       existingCustomerId: organization.paddleCustomerId,
       email: user.email,
       name: organization.name,
@@ -155,30 +198,34 @@ export async function createCheckoutSessionAction(planId: string): Promise<Check
         data: { paddleCustomerId: customerId },
       });
     }
+
+    return {
+      checkout: {
+        priceId,
+        customerId,
+        customData: { organizationId: organization.id, userId: user.id },
+      },
+    };
   } catch (error) {
+    // `requireActiveOrganization()` throws `NEXT_REDIRECT` for a user with
+    // no org — that must propagate, not be swallowed.
+    unstable_rethrow(error);
+
     // The user only ever sees GENERIC_CHECKOUT_ERROR; the structured log
-    // carries Paddle's own safe error vocabulary (type/code/detail — never a
-    // key, token or card value) plus the stage it failed at, so an operator
-    // can tell a misconfiguration (`forbidden` → the API key is
-    // under-scoped; `authentication_failed` → wrong PADDLE_ENVIRONMENT /
-    // key) from a transient Paddle outage.
+    // carries the stage plus Paddle's own safe error vocabulary
+    // (type/code/detail — never a key, token or card value), so an operator
+    // can tell a misconfiguration (`forbidden` → under-scoped API key;
+    // `authentication_failed` → wrong PADDLE_ENVIRONMENT / key) from a Neon
+    // runtime error (`stage: "auth"`) from a transient Paddle outage.
     logCheckoutDiagnostic({
       stage,
-      organizationId: organization.id,
+      organizationId,
       planId,
       misconfigured: isPaddleMisconfigurationError(error),
       error: describePaddleError(error),
     });
     return { error: GENERIC_CHECKOUT_ERROR };
   }
-
-  return {
-    checkout: {
-      priceId,
-      customerId,
-      customData: { organizationId: organization.id, userId: user.id },
-    },
-  };
 }
 
 /**
@@ -187,25 +234,34 @@ export async function createCheckoutSessionAction(planId: string): Promise<Check
  * portal URL is fetched fresh each time because Paddle's are short-lived.
  */
 export async function createPortalSessionAction(): Promise<BillingActionState> {
-  const { organization, role } = await requireActiveOrganization();
-  if (!canManageBilling(role)) {
-    return { error: "You don't have permission to manage billing." };
-  }
+  return guardBillingAction(
+    "portal_session",
+    "Could not open the billing portal right now. Please try again shortly.",
+    async () => {
+      const { organization, role } = await requireActiveOrganization();
+      if (!canManageBilling(role)) {
+        return { error: "You don't have permission to manage billing." };
+      }
 
-  if (!isBillingConfigured()) {
-    return { error: NOT_CONFIGURED_ERROR };
-  }
+      if (!isBillingConfigured()) {
+        return { error: NOT_CONFIGURED_ERROR };
+      }
 
-  if (!organization.paddleCustomerId) {
-    return { error: "This organization doesn't have a subscription yet — subscribe to a plan first." };
-  }
+      if (!organization.paddleCustomerId) {
+        return { error: "This organization doesn't have a subscription yet — subscribe to a plan first." };
+      }
 
-  const portalUrl = await getCustomerPortalUrl(organization.paddleCustomerId, organization.paddleSubscriptionId);
-  if (!portalUrl) {
-    return { error: "Could not open the billing portal right now. Please try again shortly." };
-  }
+      const portalUrl = await getCustomerPortalUrl(
+        organization.paddleCustomerId,
+        organization.paddleSubscriptionId
+      );
+      if (!portalUrl) {
+        return { error: "Could not open the billing portal right now. Please try again shortly." };
+      }
 
-  redirect(portalUrl);
+      redirect(portalUrl);
+    }
+  );
 }
 
 /**
@@ -217,42 +273,48 @@ export async function createPortalSessionAction(): Promise<BillingActionState> {
  * for long.
  */
 export async function cancelSubscriptionAction(): Promise<BillingActionState> {
-  const { organization, role } = await requireActiveOrganization();
-  if (!canManageBilling(role)) {
-    return { error: "You don't have permission to manage billing." };
-  }
+  return guardBillingAction(
+    "cancel_subscription",
+    "Could not cancel the subscription right now. Please try again shortly.",
+    async () => {
+      const { organization, role } = await requireActiveOrganization();
+      if (!canManageBilling(role)) {
+        return { error: "You don't have permission to manage billing." };
+      }
 
-  if (!isBillingConfigured()) {
-    return { error: NOT_CONFIGURED_ERROR };
-  }
+      if (!isBillingConfigured()) {
+        return { error: NOT_CONFIGURED_ERROR };
+      }
 
-  if (!organization.paddleSubscriptionId) {
-    return { error: "This organization doesn't have an active subscription to cancel." };
-  }
+      if (!organization.paddleSubscriptionId) {
+        return { error: "This organization doesn't have an active subscription to cancel." };
+      }
 
-  try {
-    await cancelPaddleSubscription(organization.paddleSubscriptionId);
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        msg: "billing_cancel_action_failed",
-        organizationId: organization.id,
-        error: describePaddleError(error),
-      })
-    );
-    return { error: "Could not cancel the subscription right now. Please try again shortly." };
-  }
+      try {
+        await cancelPaddleSubscription(organization.paddleSubscriptionId);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            msg: "billing_cancel_action_failed",
+            organizationId: organization.id,
+            error: describePaddleError(error),
+          })
+        );
+        return { error: "Could not cancel the subscription right now. Please try again shortly." };
+      }
 
-  // Reflect the pending cancellation immediately rather than waiting for the
-  // webhook round trip — the webhook will overwrite this with Paddle's own
-  // authoritative state regardless.
-  await prisma.organization.update({
-    where: { id: organization.id },
-    data: { cancelAtPeriodEnd: true },
-  });
+      // Reflect the pending cancellation immediately rather than waiting for
+      // the webhook round trip — the webhook will overwrite this with
+      // Paddle's own authoritative state regardless.
+      await prisma.organization.update({
+        where: { id: organization.id },
+        data: { cancelAtPeriodEnd: true },
+      });
 
-  revalidatePath("/settings/billing");
-  return {};
+      revalidatePath("/settings/billing");
+      return {};
+    }
+  );
 }
 
 /**
@@ -262,37 +324,56 @@ export async function cancelSubscriptionAction(): Promise<BillingActionState> {
  * price.
  */
 export async function changeSubscriptionPlanAction(planId: string): Promise<BillingActionState> {
-  const { organization, role } = await requireActiveOrganization();
-  if (!canManageBilling(role)) {
-    return { error: "You don't have permission to manage billing." };
-  }
+  return guardBillingAction(
+    "change_plan",
+    "Could not change the plan right now. Please try again shortly.",
+    async () => {
+      const { organization, role } = await requireActiveOrganization();
+      if (!canManageBilling(role)) {
+        return { error: "You don't have permission to manage billing." };
+      }
 
-  if (!isBillingConfigured()) {
-    return { error: NOT_CONFIGURED_ERROR };
-  }
+      if (!isBillingConfigured()) {
+        return { error: NOT_CONFIGURED_ERROR };
+      }
 
-  if (!organization.paddleSubscriptionId) {
-    return { error: "This organization doesn't have an active subscription to change. Subscribe to a plan first." };
-  }
+      if (!organization.paddleSubscriptionId) {
+        return { error: "This organization doesn't have an active subscription to change. Subscribe to a plan first." };
+      }
 
-  const plan = PLANS[planId as PlanId];
-  if (!plan || planId === "free" || planId === "enterprise" || !plan.paddlePriceId) {
-    return { error: "This plan isn't available for self-serve checkout. Contact us instead." };
-  }
+      const plan = PLANS[planId as PlanId];
+      if (!plan || planId === "free" || planId === "enterprise" || !plan.paddlePriceId) {
+        return { error: "This plan isn't available for self-serve checkout. Contact us instead." };
+      }
 
-  try {
-    await changePaddleSubscriptionPlan(organization.paddleSubscriptionId, plan.paddlePriceId);
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        msg: "billing_change_plan_action_failed",
-        organizationId: organization.id,
-        error: describePaddleError(error),
-      })
-    );
-    return { error: "Could not change the plan right now. Please try again shortly." };
-  }
+      const newPriceId = plan.paddlePriceId.trim();
+      if (!isValidPaddlePriceId(newPriceId)) {
+        console.error(
+          JSON.stringify({
+            msg: "billing_change_plan_bad_price_id",
+            organizationId: organization.id,
+            planId,
+            priceIdPrefix: newPriceId.slice(0, 4) || null,
+          })
+        );
+        return { error: "Could not change the plan right now. Please try again shortly." };
+      }
 
-  revalidatePath("/settings/billing");
-  return {};
+      try {
+        await changePaddleSubscriptionPlan(organization.paddleSubscriptionId, newPriceId);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            msg: "billing_change_plan_action_failed",
+            organizationId: organization.id,
+            error: describePaddleError(error),
+          })
+        );
+        return { error: "Could not change the plan right now. Please try again shortly." };
+      }
+
+      revalidatePath("/settings/billing");
+      return {};
+    }
+  );
 }

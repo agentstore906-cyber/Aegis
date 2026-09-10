@@ -122,6 +122,24 @@ describe("payment + subscription-state wiring is unchanged", () => {
     expect(billingPage).toContain("<BillingCancelButton />");
   });
 
+  it("Subscribe failures are returned as error state, never thrown to the dashboard error boundary", () => {
+    // The auth + Prisma section of createCheckoutSessionAction
+    // (requireActiveOrganization) used to sit outside any try/catch, so a
+    // Neon runtime error there escaped to app/(dashboard)/error.tsx as a
+    // bare "something went wrong". The whole body must be guarded, and
+    // framework control-flow (redirect/notFound) must still propagate.
+    const actions = read("lib/billing/actions.ts");
+    expect(actions).toMatch(/unstable_rethrow/);
+    const checkoutBody = actions.slice(actions.indexOf("export async function createCheckoutSessionAction"));
+    expect(checkoutBody.indexOf("try {")).toBeGreaterThan(-1);
+    expect(checkoutBody.indexOf("requireActiveOrganization()")).toBeGreaterThan(checkoutBody.indexOf("try {"));
+
+    // The client button + provider also swallow a rejected action rather
+    // than letting the transition escalate to the error boundary.
+    expect(read("components/settings/billing-upgrade-button.tsx")).toMatch(/} catch\b/);
+    expect(read("components/settings/paddle-checkout-provider.tsx")).toMatch(/paddle_checkout_action_threw/);
+  });
+
   it("no mock / fake payment or subscription helpers were introduced", () => {
     for (const rel of [
       "lib/billing/upgrade-ctas.ts",

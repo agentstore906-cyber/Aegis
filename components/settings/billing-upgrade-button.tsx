@@ -24,8 +24,14 @@ export function BillingUpgradeButton({
   const handleClick = () => {
     setError(null);
     startTransition(async () => {
-      const result = await openCheckoutForPlan(planId);
-      if (result.error) setError(result.error);
+      try {
+        const result = await openCheckoutForPlan(planId);
+        if (result.error) setError(result.error);
+      } catch {
+        // Never let a rejection escape the transition to the route error
+        // boundary — the user stays on the billing page with a message.
+        setError("Could not start checkout. Please try again in a moment.");
+      }
     });
   };
 

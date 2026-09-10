@@ -107,7 +107,18 @@ export function PaddleCheckoutProvider({ children }: { children: React.ReactNode
 
   const openCheckoutForPlan = useCallback(
     async (planId: string): Promise<OpenCheckoutResult> => {
-      const result = await createCheckoutSessionAction(planId);
+      let result: Awaited<ReturnType<typeof createCheckoutSessionAction>>;
+      try {
+        result = await createCheckoutSessionAction(planId);
+      } catch (error) {
+        // A server action that rejects (rather than returning `{ error }`)
+        // would otherwise surface as the dashboard error boundary. Keep the
+        // failure inside this button.
+        console.error(
+          JSON.stringify({ msg: "paddle_checkout_action_threw", error: describeClientError(error) })
+        );
+        return { error: GENERIC_ERROR };
+      }
       if (result.error || !result.checkout) {
         return { error: result.error ?? GENERIC_ERROR };
       }
