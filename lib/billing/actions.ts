@@ -13,6 +13,8 @@ import {
   changePaddleSubscriptionPlan,
   isBillingConfigured,
   describePaddleError,
+  isPaddleMisconfigurationError,
+  resolvePaddleEnvironment,
 } from "@/lib/billing/paddle";
 import { PLANS, type PlanId } from "@/lib/billing/plans";
 
@@ -76,14 +78,27 @@ export async function createCheckoutSessionAction(planId: string): Promise<Check
   } catch (error) {
     // Log Paddle's own safe error vocabulary (type/code/detail — never a
     // key, token or card value) so an operator can tell a misconfiguration
-    // (`authentication_failed` → wrong PADDLE_ENVIRONMENT / key) from a
-    // transient Paddle outage. The user still sees only the clean message.
+    // (`forbidden` → the API key is under-scoped; `authentication_failed` →
+    // wrong PADDLE_ENVIRONMENT / key) from a transient Paddle outage. The
+    // user still sees only the clean message.
+    const misconfigured = isPaddleMisconfigurationError(error);
     console.error(
       JSON.stringify({
-        msg: "billing_checkout_action_failed",
+        msg: misconfigured ? "billing_checkout_misconfigured" : "billing_checkout_action_failed",
         organizationId: organization.id,
-        paddleEnvironment: process.env.PADDLE_ENVIRONMENT?.trim().toLowerCase() ?? null,
+        // The environment the SDK actually used for this call — not the raw
+        // env var, which `resolvePaddleEnvironment()` may have overridden.
+        paddleEnvironment: resolvePaddleEnvironment(),
+        paddleEnvironmentVar: process.env.PADDLE_ENVIRONMENT?.trim().toLowerCase() ?? null,
         error: describePaddleError(error),
+        ...(misconfigured
+          ? {
+              action:
+                "Paddle rejected an authenticated request. Grant the PADDLE_API_KEY the customer/transaction/subscription " +
+                "permissions in Paddle → Developer tools → API keys (or issue a new key with them) and confirm PADDLE_API_KEY, " +
+                "PADDLE_CLIENT_TOKEN and PADDLE_ENVIRONMENT all point at the same Paddle environment.",
+            }
+          : {}),
       })
     );
     return { error: "Could not start checkout. Please try again in a moment." };

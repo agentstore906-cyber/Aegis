@@ -8,6 +8,7 @@ import {
   verifyAndUnmarshalWebhook,
   resolvePaddleEnvironment,
   describePaddleError,
+  isPaddleMisconfigurationError,
 } from "@/lib/billing/paddle";
 import { PLANS } from "@/lib/billing/plans";
 import { ApiError } from "@paddle/paddle-node-sdk";
@@ -184,5 +185,29 @@ describe("describePaddleError", () => {
   it("degrades gracefully for a plain Error and for a non-error throw", () => {
     expect(describePaddleError(new TypeError("boom"))).toEqual({ name: "TypeError", message: "boom" });
     expect(describePaddleError("weird")).toEqual({ name: "UnknownError", message: "weird" });
+  });
+});
+
+describe("isPaddleMisconfigurationError", () => {
+  const apiError = (code: string) =>
+    new ApiError({ type: "request_error", code, detail: "x", documentation_url: "" }, null);
+
+  it("flags an under-scoped API key (Paddle's `forbidden`) as a misconfiguration, not a retryable blip", () => {
+    // HTTP 403 `forbidden` — the key authenticates but lacks the permission
+    // the call needs. This is exactly what silently breaks production checkout.
+    expect(isPaddleMisconfigurationError(apiError("forbidden"))).toBe(true);
+  });
+
+  it("flags wrong-key / wrong-environment and missing-catalog-id errors too", () => {
+    for (const code of ["authentication_failed", "authentication_malformed", "invalid_token", "not_found"]) {
+      expect(isPaddleMisconfigurationError(apiError(code))).toBe(true);
+    }
+  });
+
+  it("does not flag a transient/other Paddle error or a plain Error", () => {
+    expect(isPaddleMisconfigurationError(apiError("internal_error"))).toBe(false);
+    expect(isPaddleMisconfigurationError(apiError("customer_already_exists"))).toBe(false);
+    expect(isPaddleMisconfigurationError(new Error("network down"))).toBe(false);
+    expect(isPaddleMisconfigurationError("nope")).toBe(false);
   });
 });

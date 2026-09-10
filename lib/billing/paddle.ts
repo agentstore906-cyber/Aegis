@@ -168,6 +168,32 @@ export function describePaddleError(error: unknown): SafePaddleError {
   return { name: "UnknownError", message: typeof error === "string" ? error : "Unknown error" };
 }
 
+/**
+ * Paddle error codes that mean the request will *never* succeed until a
+ * human changes the Paddle/deployment configuration — as opposed to a
+ * transient outage worth retrying. `forbidden` is the one that bites
+ * silently: Paddle returns it (HTTP 403, `type: "request_error"`) when the
+ * `PADDLE_API_KEY` authenticates fine but lacks the permission the call
+ * needs (Paddle keys are scoped per-resource, and a freshly-minted key has
+ * *no* permissions until they're granted in Paddle → Developer tools → API
+ * keys). `authentication_*` mean the key itself is wrong for the resolved
+ * environment. All of these surface to the user as the generic "Could not
+ * start checkout" — this predicate lets the server log say which it was.
+ */
+const PADDLE_MISCONFIG_CODES = new Set([
+  "forbidden",
+  "authentication_failed",
+  "authentication_missing",
+  "authentication_malformed",
+  "invalid_token",
+  "not_found", // e.g. a price id that doesn't exist in the resolved catalog/environment
+]);
+
+/** True when a caught error is a Paddle misconfiguration (bad/under-scoped key, wrong environment, missing catalog id) rather than a retryable blip. */
+export function isPaddleMisconfigurationError(error: unknown): boolean {
+  return error instanceof ApiError && Boolean(error.code) && PADDLE_MISCONFIG_CODES.has(error.code);
+}
+
 function paddleEnvironment(): Environment {
   return resolvePaddleEnvironment() === "production" ? Environment.production : Environment.sandbox;
 }
