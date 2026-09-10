@@ -12,6 +12,7 @@ import {
   cancelPaddleSubscription,
   changePaddleSubscriptionPlan,
   isBillingConfigured,
+  describePaddleError,
 } from "@/lib/billing/paddle";
 import { PLANS, type PlanId } from "@/lib/billing/plans";
 
@@ -73,8 +74,17 @@ export async function createCheckoutSessionAction(planId: string): Promise<Check
       });
     }
   } catch (error) {
+    // Log Paddle's own safe error vocabulary (type/code/detail — never a
+    // key, token or card value) so an operator can tell a misconfiguration
+    // (`authentication_failed` → wrong PADDLE_ENVIRONMENT / key) from a
+    // transient Paddle outage. The user still sees only the clean message.
     console.error(
-      JSON.stringify({ msg: "billing_checkout_action_failed", organizationId: organization.id, error: String(error) })
+      JSON.stringify({
+        msg: "billing_checkout_action_failed",
+        organizationId: organization.id,
+        paddleEnvironment: process.env.PADDLE_ENVIRONMENT?.trim().toLowerCase() ?? null,
+        error: describePaddleError(error),
+      })
     );
     return { error: "Could not start checkout. Please try again in a moment." };
   }
@@ -141,7 +151,11 @@ export async function cancelSubscriptionAction(): Promise<BillingActionState> {
     await cancelPaddleSubscription(organization.paddleSubscriptionId);
   } catch (error) {
     console.error(
-      JSON.stringify({ msg: "billing_cancel_action_failed", organizationId: organization.id, error: String(error) })
+      JSON.stringify({
+        msg: "billing_cancel_action_failed",
+        organizationId: organization.id,
+        error: describePaddleError(error),
+      })
     );
     return { error: "Could not cancel the subscription right now. Please try again shortly." };
   }
@@ -187,7 +201,11 @@ export async function changeSubscriptionPlanAction(planId: string): Promise<Bill
     await changePaddleSubscriptionPlan(organization.paddleSubscriptionId, plan.paddlePriceId);
   } catch (error) {
     console.error(
-      JSON.stringify({ msg: "billing_change_plan_action_failed", organizationId: organization.id, error: String(error) })
+      JSON.stringify({
+        msg: "billing_change_plan_action_failed",
+        organizationId: organization.id,
+        error: describePaddleError(error),
+      })
     );
     return { error: "Could not change the plan right now. Please try again shortly." };
   }

@@ -21,12 +21,21 @@ const isDev = process.env.NODE_ENV === "development";
 // redeploy of this header), and the API calls Paddle.js makes directly
 // from the browser (pricing/localization lookups, event reporting). This
 // is the only third-party origin allowed anywhere in this policy.
+//
+// The overlay iframe is served from `buy.paddle.com` /
+// `sandbox-buy.paddle.com` and the checkout it loads is created via
+// `create-checkout.paddle.com` — these are the exact hosts Paddle.js v2
+// uses (verified against the CDN bundle's `checkoutFrontEndBase` /
+// `checkoutBase`). An earlier revision allowlisted `checkout.paddle.com`,
+// which Paddle.js never contacts, so `frame-src` silently blocked the
+// overlay and card wallets never loaded.
 const PADDLE_SCRIPT_ORIGIN = "https://cdn.paddle.com";
-const PADDLE_CHECKOUT_ORIGINS = "https://checkout.paddle.com https://sandbox-checkout.paddle.com";
-const PADDLE_API_ORIGINS = "https://api.paddle.com https://sandbox-api.paddle.com";
+const PADDLE_CHECKOUT_ORIGINS = "https://buy.paddle.com https://sandbox-buy.paddle.com";
+const PADDLE_API_ORIGINS =
+  "https://api.paddle.com https://sandbox-api.paddle.com https://create-checkout.paddle.com https://sandbox-create-checkout.paddle.com";
 // Permissions-Policy allowlist origins are quoted strings, unlike CSP's
 // bare-origin syntax — a separate, correctly-quoted form of the same list.
-const PADDLE_CHECKOUT_ORIGINS_QUOTED = '"https://checkout.paddle.com" "https://sandbox-checkout.paddle.com"';
+const PADDLE_CHECKOUT_ORIGINS_QUOTED = '"https://buy.paddle.com" "https://sandbox-buy.paddle.com"';
 
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
