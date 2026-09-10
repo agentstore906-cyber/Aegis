@@ -20,7 +20,7 @@ const WEBHOOK_SECRET = "pdl_test_fake_webhook_secret_for_signature_verification_
 
 process.env.PADDLE_API_KEY = "pdl_test_fake_key";
 process.env.PADDLE_WEBHOOK_SECRET = WEBHOOK_SECRET;
-process.env.PADDLE_ENVIRONMENT = "sandbox";
+process.env.PADDLE_ENVIRONMENT = "production";
 process.env.PADDLE_GROWTH_PRICE_ID = "pri_growth_test";
 process.env.PADDLE_STARTUP_PRICE_ID = "pri_startup_test";
 
