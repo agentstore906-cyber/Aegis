@@ -7,8 +7,12 @@ import {
   planIdForPriceId,
   verifyAndUnmarshalWebhook,
   resolvePaddleEnvironment,
+  resolvePaddleEnvironmentForLog,
   describePaddleError,
   isPaddleMisconfigurationError,
+  isPaddleEntityNotFoundError,
+  isValidPaddlePriceId,
+  PaddleConfigError,
 } from "@/lib/billing/paddle";
 import { PLANS } from "@/lib/billing/plans";
 import { ApiError } from "@paddle/paddle-node-sdk";
@@ -160,6 +164,52 @@ describe("resolvePaddleEnvironment", () => {
 
   it("falls back to sandbox when nothing is configured", () => {
     expect(resolvePaddleEnvironment()).toBe("sandbox");
+  });
+
+  it("throws (never silently selects sandbox) when PADDLE_ENVIRONMENT is set to an unrecognized value", () => {
+    for (const bad of ["prod", "live", "PRODUCTON", "staging", "true"]) {
+      process.env.PADDLE_ENVIRONMENT = bad;
+      expect(() => resolvePaddleEnvironment()).toThrow(PaddleConfigError);
+    }
+  });
+
+  it("resolvePaddleEnvironmentForLog reports \"invalid\" instead of throwing for the log path", () => {
+    process.env.PADDLE_ENVIRONMENT = "prod";
+    expect(resolvePaddleEnvironmentForLog()).toBe("invalid");
+    process.env.PADDLE_ENVIRONMENT = "production";
+    expect(resolvePaddleEnvironmentForLog()).toBe("production");
+  });
+});
+
+describe("isValidPaddlePriceId", () => {
+  it("accepts a Paddle price id (with or without stray whitespace)", () => {
+    expect(isValidPaddlePriceId("pri_01hzq0abcdef0123456789wxyz")).toBe(true);
+    expect(isValidPaddlePriceId("  pri_01hzq0abcdef0123456789wxyz  ")).toBe(true);
+  });
+
+  it("rejects a product id, a blank/whitespace value, uppercase, and non-strings", () => {
+    expect(isValidPaddlePriceId("pro_01hzq0abcdef0123456789wxyz")).toBe(false);
+    expect(isValidPaddlePriceId("")).toBe(false);
+    expect(isValidPaddlePriceId("   ")).toBe(false);
+    expect(isValidPaddlePriceId("pri_ABC123")).toBe(false);
+    expect(isValidPaddlePriceId(null)).toBe(false);
+    expect(isValidPaddlePriceId(undefined)).toBe(false);
+  });
+});
+
+describe("isPaddleEntityNotFoundError", () => {
+  const apiError = (code: string) =>
+    new ApiError({ type: "entity_error", code, detail: "x", documentation_url: "" }, null);
+
+  it("is true only for a genuine not-found (the one case where re-creating a stored id is correct)", () => {
+    expect(isPaddleEntityNotFoundError(apiError("not_found"))).toBe(true);
+    expect(isPaddleEntityNotFoundError(apiError("entity_not_found"))).toBe(true);
+  });
+
+  it("is false for an auth failure, another Paddle error, or a plain Error", () => {
+    expect(isPaddleEntityNotFoundError(apiError("forbidden"))).toBe(false);
+    expect(isPaddleEntityNotFoundError(apiError("authentication_failed"))).toBe(false);
+    expect(isPaddleEntityNotFoundError(new Error("network down"))).toBe(false);
   });
 });
 

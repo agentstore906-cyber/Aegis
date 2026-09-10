@@ -34,10 +34,38 @@ export function isBillingConfigured(): boolean {
 
 export type PaddleEnv = "sandbox" | "production";
 
-/** Trim + lower-case `PADDLE_ENVIRONMENT`; return it only if it's a value we recognise. */
+/**
+ * Thrown when the Paddle *configuration* is unusable in a way only a human
+ * can fix. Currently the single trigger is a `PADDLE_ENVIRONMENT` set to
+ * something other than `production`/`sandbox`: the safe-looking alternative
+ * — silently resolving to `sandbox` — is exactly how a production
+ * deployment ends up pointed at the wrong Paddle account, which surfaces to
+ * users as "Could not start checkout." Failing loud here turns that into a
+ * single obvious log line instead.
+ */
+export class PaddleConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PaddleConfigError";
+  }
+}
+
+/**
+ * `PADDLE_ENVIRONMENT`, trimmed + lower-cased:
+ *   - unset / empty         → `null` (caller infers from the credentials)
+ *   - `production`/`sandbox` → that value
+ *   - anything else          → throws `PaddleConfigError` — never a silent
+ *     fallback to `sandbox`.
+ */
 function explicitPaddleEnv(): PaddleEnv | null {
   const value = process.env.PADDLE_ENVIRONMENT?.trim().toLowerCase();
-  return value === "production" || value === "sandbox" ? value : null;
+  if (!value) return null;
+  if (value === "production" || value === "sandbox") return value;
+  throw new PaddleConfigError(
+    'PADDLE_ENVIRONMENT is set to an unrecognized value — it must be exactly "production" or "sandbox". ' +
+      "Fix it in this deployment's environment configuration; refusing to guess so a production deployment " +
+      "is never silently pointed at Paddle sandbox."
+  );
 }
 
 /** Which Paddle environment a credential belongs to, inferred from its prefix (`null` = can't tell). */
@@ -100,49 +128,121 @@ export function resolvePaddleEnvironment(): PaddleEnv {
   return explicit ?? fromCredentials ?? "sandbox";
 }
 
+/**
+ * `resolvePaddleEnvironment()` for log/diagnostic paths — never throws.
+ * Returns `"invalid"` when `PADDLE_ENVIRONMENT` is set to an unrecognized
+ * value (the case `resolvePaddleEnvironment()` throws on).
+ */
+export function resolvePaddleEnvironmentForLog(): PaddleEnv | "invalid" {
+  try {
+    return resolvePaddleEnvironment();
+  } catch {
+    return "invalid";
+  }
+}
+
+/**
+ * A Paddle *price* id is `pri_` followed by a lowercase base32-style id.
+ * A product id (`pro_…`), a transaction/checkout id, a sandbox value pasted
+ * into a live deployment's env, or a value with stray whitespace all fail
+ * this — each of which otherwise reaches `Paddle.Checkout.open()` and fails
+ * client-side with only the generic error and no server log.
+ */
+export const PADDLE_PRICE_ID_PATTERN = /^pri_[a-z0-9]+$/;
+
+export function isValidPaddlePriceId(value: string | null | undefined): boolean {
+  return typeof value === "string" && PADDLE_PRICE_ID_PATTERN.test(value.trim());
+}
+
+/** Non-sensitive shape of a configured price id for logs — presence + 4-char type prefix + whether it looks like a `pri_…` id. Never the full value. */
+function describePriceIdForLog(value: string | undefined): { present: boolean; prefix: string | null; looksValid: boolean } {
+  const trimmed = value?.trim();
+  if (!trimmed) return { present: false, prefix: null, looksValid: false };
+  return { present: true, prefix: trimmed.slice(0, 4), looksValid: PADDLE_PRICE_ID_PATTERN.test(trimmed) };
+}
+
 let envDiagnosticsLogged = false;
 
 /**
- * Logs (once per process) a non-sensitive diagnostic when the Paddle
- * environment configuration is inconsistent. Never logs a key or token
- * value — only its environment class ("production"/"sandbox").
+ * Logs (once per process) a non-sensitive snapshot of the Paddle
+ * configuration, plus a targeted warning whenever it's inconsistent. This
+ * is the line that makes a broken production checkout diagnosable from
+ * Vercel Runtime Logs. It NEVER logs a key, token or secret value — only
+ * presence booleans, the environment class ("production"/"sandbox"), and a
+ * configured price id's 4-char type prefix (`pri_` / `pro_`). Never throws.
  */
 export function logPaddleEnvDiagnosticsOnce(): void {
   if (envDiagnosticsLogged) return;
   envDiagnosticsLogged = true;
 
-  const explicit = explicitPaddleEnv();
-  const resolved = resolvePaddleEnvironment();
-  const apiKeyClass = classifyCredential(process.env.PADDLE_API_KEY, "pdl_live_", "pdl_sdbx_");
-  const tokenClass = classifyCredential(process.env.PADDLE_CLIENT_TOKEN, "live_", "test_");
+  try {
+    const rawEnvVar = process.env.PADDLE_ENVIRONMENT?.trim().toLowerCase() || null;
+    const resolved = resolvePaddleEnvironmentForLog();
+    const apiKeyClass = classifyCredential(process.env.PADDLE_API_KEY, "pdl_live_", "pdl_sdbx_");
+    const tokenClass = classifyCredential(process.env.PADDLE_CLIENT_TOKEN, "live_", "test_");
 
-  if (explicit && explicit !== resolved) {
-    console.error(
+    // Always emit the snapshot — the first production checkout failure is
+    // then diagnosable without any secret ever being logged.
+    console.info(
       JSON.stringify({
-        msg: "paddle_environment_override",
+        msg: "paddle_config_summary",
         resolvedEnvironment: resolved,
-        detail:
-          `PADDLE_ENVIRONMENT="${explicit}" contradicts the configured Paddle credentials ` +
-          `(which are ${resolved}); using "${resolved}" so Paddle can authenticate. ` +
-          `Update PADDLE_ENVIRONMENT to "${resolved}" in this environment.`,
+        paddleEnvironmentVar: rawEnvVar,
+        apiKeyPresent: Boolean(process.env.PADDLE_API_KEY),
+        apiKeyEnvironment: apiKeyClass,
+        clientTokenPresent: Boolean(process.env.PADDLE_CLIENT_TOKEN),
+        clientTokenEnvironment: tokenClass,
+        webhookSecretPresent: Boolean(process.env.PADDLE_WEBHOOK_SECRET),
+        priceIds: {
+          startup: describePriceIdForLog(process.env.PADDLE_STARTUP_PRICE_ID),
+          growth: describePriceIdForLog(process.env.PADDLE_GROWTH_PRICE_ID),
+          business: describePriceIdForLog(process.env.PADDLE_BUSINESS_PRICE_ID),
+        },
       })
     );
-    return;
-  }
 
-  const conflicts: string[] = [];
-  if (apiKeyClass && apiKeyClass !== resolved) conflicts.push(`PADDLE_API_KEY is a ${apiKeyClass} key`);
-  if (tokenClass && tokenClass !== resolved) conflicts.push(`PADDLE_CLIENT_TOKEN is a ${tokenClass} token`);
-  if (conflicts.length > 0) {
-    console.error(
-      JSON.stringify({
-        msg: "paddle_environment_mismatch",
-        resolvedEnvironment: resolved,
-        detail:
-          `${conflicts.join("; ")}, which cannot authenticate against the ${resolved} Paddle endpoint. ` +
-          `Set PADDLE_ENVIRONMENT, PADDLE_API_KEY and PADDLE_CLIENT_TOKEN to the same Paddle environment.`,
-      })
-    );
+    if (resolved === "invalid") {
+      console.error(
+        JSON.stringify({
+          msg: "paddle_environment_invalid",
+          paddleEnvironmentVar: rawEnvVar,
+          detail:
+            'PADDLE_ENVIRONMENT must be exactly "production" or "sandbox". Billing calls will fail until it is fixed.',
+        })
+      );
+      return;
+    }
+
+    if (rawEnvVar && rawEnvVar !== resolved) {
+      console.error(
+        JSON.stringify({
+          msg: "paddle_environment_override",
+          resolvedEnvironment: resolved,
+          detail:
+            `PADDLE_ENVIRONMENT="${rawEnvVar}" contradicts the configured Paddle credentials ` +
+            `(which are ${resolved}); using "${resolved}" so Paddle can authenticate. ` +
+            `Update PADDLE_ENVIRONMENT to "${resolved}" in this environment.`,
+        })
+      );
+      return;
+    }
+
+    const conflicts: string[] = [];
+    if (apiKeyClass && apiKeyClass !== resolved) conflicts.push(`PADDLE_API_KEY is a ${apiKeyClass} key`);
+    if (tokenClass && tokenClass !== resolved) conflicts.push(`PADDLE_CLIENT_TOKEN is a ${tokenClass} token`);
+    if (conflicts.length > 0) {
+      console.error(
+        JSON.stringify({
+          msg: "paddle_environment_mismatch",
+          resolvedEnvironment: resolved,
+          detail:
+            `${conflicts.join("; ")}, which cannot authenticate against the ${resolved} Paddle endpoint. ` +
+            `Set PADDLE_ENVIRONMENT, PADDLE_API_KEY and PADDLE_CLIENT_TOKEN to the same Paddle environment.`,
+        })
+      );
+    }
+  } catch (error) {
+    console.error(JSON.stringify({ msg: "paddle_diagnostics_failed", error: describePaddleError(error) }));
   }
 }
 
@@ -192,6 +292,11 @@ const PADDLE_MISCONFIG_CODES = new Set([
 /** True when a caught error is a Paddle misconfiguration (bad/under-scoped key, wrong environment, missing catalog id) rather than a retryable blip. */
 export function isPaddleMisconfigurationError(error: unknown): boolean {
   return error instanceof ApiError && Boolean(error.code) && PADDLE_MISCONFIG_CODES.has(error.code);
+}
+
+/** True when Paddle says the referenced entity simply doesn't exist (a stored id that was deleted in the dashboard) — the one case where re-creating it is correct. */
+export function isPaddleEntityNotFoundError(error: unknown): boolean {
+  return error instanceof ApiError && (error.code === "not_found" || error.code === "entity_not_found");
 }
 
 function paddleEnvironment(): Environment {
@@ -265,8 +370,13 @@ export async function ensurePaddleCustomer(params: {
     try {
       const existing = await paddle.customers.get(params.existingCustomerId);
       if (existing) return existing.id;
-    } catch {
-      // Stored id no longer resolves — fall through and create a fresh one.
+    } catch (error) {
+      // Only a genuine "this id no longer exists" (the customer was deleted
+      // in the Paddle dashboard) justifies minting a replacement. An auth
+      // failure or a transient Paddle error must propagate — swallowing it
+      // here would mask the real cause and risk creating a duplicate
+      // customer on a blip.
+      if (!isPaddleEntityNotFoundError(error)) throw error;
     }
   }
 

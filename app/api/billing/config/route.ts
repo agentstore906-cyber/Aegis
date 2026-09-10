@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
-import { resolvePaddleEnvironment, logPaddleEnvDiagnosticsOnce } from "@/lib/billing/paddle";
+import { resolvePaddleEnvironmentForLog, logPaddleEnvDiagnosticsOnce } from "@/lib/billing/paddle";
 
 /**
  * Hands the browser what it needs to initialize Paddle.js for the checkout
@@ -20,12 +20,26 @@ import { resolvePaddleEnvironment, logPaddleEnvDiagnosticsOnce } from "@/lib/bil
 export async function GET() {
   await requireActiveOrganization();
 
-  const clientToken = process.env.PADDLE_CLIENT_TOKEN ?? null;
+  logPaddleEnvDiagnosticsOnce();
 
-  if (!clientToken) {
+  const clientToken = process.env.PADDLE_CLIENT_TOKEN?.trim() || null;
+  const environment = resolvePaddleEnvironmentForLog();
+
+  if (!clientToken || environment === "invalid") {
+    // Paddle.js can't be initialized without both of these. Log which one
+    // is missing (never the token value) so a browser that shows "Could not
+    // start checkout" has a matching server-side line.
+    console.error(
+      JSON.stringify({
+        msg: "billing_config_unavailable",
+        operation: "checkout_config",
+        provider: "paddle",
+        environment,
+        clientTokenPresent: Boolean(clientToken),
+      })
+    );
     return NextResponse.json({ error: "Paddle is not configured in this environment." }, { status: 404 });
   }
 
-  logPaddleEnvDiagnosticsOnce();
-  return NextResponse.json({ clientToken, environment: resolvePaddleEnvironment() });
+  return NextResponse.json({ clientToken, environment });
 }

@@ -14,13 +14,68 @@ import {
   isBillingConfigured,
   describePaddleError,
   isPaddleMisconfigurationError,
-  resolvePaddleEnvironment,
+  isValidPaddlePriceId,
+  logPaddleEnvDiagnosticsOnce,
+  resolvePaddleEnvironmentForLog,
+  type SafePaddleError,
 } from "@/lib/billing/paddle";
 import { PLANS, type PlanId } from "@/lib/billing/plans";
 
 export type BillingActionState = { error?: string };
 
 const NOT_CONFIGURED_ERROR = "Billing is not configured in this environment. See docs/deployment.md.";
+/** The one message the user ever sees for a failed checkout start — the real cause goes to the server log via `logCheckoutDiagnostic`. */
+const GENERIC_CHECKOUT_ERROR = "Could not start checkout. Please try again in a moment.";
+
+/** Which step of `createCheckoutSessionAction` a failure happened at — attached to every checkout diagnostic. */
+type CheckoutStage = "config" | "customer_create" | "persist_customer";
+
+const MISCONFIG_ACTION_HINT =
+  "Paddle rejected an authenticated request. Grant the PADDLE_API_KEY the customer/transaction/subscription " +
+  "permissions in Paddle → Developer tools → API keys (or issue a new key with them) and confirm PADDLE_API_KEY, " +
+  "PADDLE_CLIENT_TOKEN and PADDLE_ENVIRONMENT all point at the same Paddle environment.";
+
+/**
+ * Emits the one structured, secret-free checkout diagnostic (Phase 10
+ * shape) to the server log. Contains no key, token, cookie, card value or
+ * price id — only Paddle's own generic error vocabulary and non-sensitive
+ * metadata. This is what turns "Could not start checkout" into an
+ * actionable Vercel Runtime Log line.
+ */
+function logCheckoutDiagnostic(fields: {
+  stage: CheckoutStage;
+  organizationId: string;
+  planId: string;
+  misconfigured?: boolean;
+  error?: SafePaddleError;
+  priceIdPrefix?: string | null;
+  detail?: string;
+}): void {
+  const { stage, organizationId, planId, misconfigured, error, priceIdPrefix, detail } = fields;
+  console.error(
+    JSON.stringify({
+      msg: misconfigured ? "billing_checkout_misconfigured" : "billing_checkout_failed",
+      operation: "checkout_start",
+      provider: "paddle",
+      environment: resolvePaddleEnvironmentForLog(),
+      paddleEnvironmentVar: process.env.PADDLE_ENVIRONMENT?.trim().toLowerCase() ?? null,
+      stage,
+      organizationId,
+      planId,
+      ...(priceIdPrefix !== undefined ? { priceIdPrefix } : {}),
+      ...(detail ? { detail } : {}),
+      ...(error
+        ? {
+            paddleErrorName: error.name,
+            paddleType: error.type ?? null,
+            paddleCode: error.code ?? null,
+            paddleMessage: error.message,
+          }
+        : {}),
+      ...(misconfigured ? { action: MISCONFIG_ACTION_HINT } : {}),
+    })
+  );
+}
 
 /** Non-secret parameters the client feeds directly into `Paddle.Checkout.open()` — see components/settings/paddle-checkout-provider.tsx. */
 export type CheckoutSessionParams = {
@@ -52,11 +107,35 @@ export async function createCheckoutSessionAction(planId: string): Promise<Check
     return { error: NOT_CONFIGURED_ERROR };
   }
 
+  // Non-sensitive Paddle config snapshot to the log on the first checkout of
+  // each server instance — makes a misconfigured production deployment
+  // obvious in Vercel Runtime Logs without logging any secret.
+  logPaddleEnvDiagnosticsOnce();
+
   const plan = PLANS[planId as PlanId];
   if (!plan || planId === "free" || planId === "enterprise" || !plan.paddlePriceId) {
     return { error: "This plan isn't available for self-serve checkout. Contact us instead." };
   }
 
+  // The client only ever sends a plan *id*; the price id is resolved here
+  // from env. Validate its shape before handing it to the browser: a
+  // product id (`pro_…`) pasted into PADDLE_STARTUP_PRICE_ID, a sandbox
+  // price in a live deployment, or a value with stray whitespace would
+  // otherwise fail inside `Paddle.Checkout.open()` client-side with only
+  // the generic error and nothing in the server log.
+  const priceId = plan.paddlePriceId.trim();
+  if (!isValidPaddlePriceId(priceId)) {
+    logCheckoutDiagnostic({
+      stage: "config",
+      organizationId: organization.id,
+      planId,
+      priceIdPrefix: priceId.slice(0, 4) || null,
+      detail: "configured Paddle price id is not a valid `pri_…` id — check this plan's PADDLE_*_PRICE_ID env var",
+    });
+    return { error: GENERIC_CHECKOUT_ERROR };
+  }
+
+  let stage: CheckoutStage = "customer_create";
   let customerId: string;
   try {
     customerId = await ensurePaddleCustomer({
@@ -70,43 +149,32 @@ export async function createCheckoutSessionAction(planId: string): Promise<Check
     // portal button) reuses it rather than minting a new Paddle customer —
     // the webhook will also set this, but doesn't fire until payment.
     if (customerId !== organization.paddleCustomerId) {
+      stage = "persist_customer";
       await prisma.organization.update({
         where: { id: organization.id },
         data: { paddleCustomerId: customerId },
       });
     }
   } catch (error) {
-    // Log Paddle's own safe error vocabulary (type/code/detail — never a
-    // key, token or card value) so an operator can tell a misconfiguration
-    // (`forbidden` → the API key is under-scoped; `authentication_failed` →
-    // wrong PADDLE_ENVIRONMENT / key) from a transient Paddle outage. The
-    // user still sees only the clean message.
-    const misconfigured = isPaddleMisconfigurationError(error);
-    console.error(
-      JSON.stringify({
-        msg: misconfigured ? "billing_checkout_misconfigured" : "billing_checkout_action_failed",
-        organizationId: organization.id,
-        // The environment the SDK actually used for this call — not the raw
-        // env var, which `resolvePaddleEnvironment()` may have overridden.
-        paddleEnvironment: resolvePaddleEnvironment(),
-        paddleEnvironmentVar: process.env.PADDLE_ENVIRONMENT?.trim().toLowerCase() ?? null,
-        error: describePaddleError(error),
-        ...(misconfigured
-          ? {
-              action:
-                "Paddle rejected an authenticated request. Grant the PADDLE_API_KEY the customer/transaction/subscription " +
-                "permissions in Paddle → Developer tools → API keys (or issue a new key with them) and confirm PADDLE_API_KEY, " +
-                "PADDLE_CLIENT_TOKEN and PADDLE_ENVIRONMENT all point at the same Paddle environment.",
-            }
-          : {}),
-      })
-    );
-    return { error: "Could not start checkout. Please try again in a moment." };
+    // The user only ever sees GENERIC_CHECKOUT_ERROR; the structured log
+    // carries Paddle's own safe error vocabulary (type/code/detail — never a
+    // key, token or card value) plus the stage it failed at, so an operator
+    // can tell a misconfiguration (`forbidden` → the API key is
+    // under-scoped; `authentication_failed` → wrong PADDLE_ENVIRONMENT /
+    // key) from a transient Paddle outage.
+    logCheckoutDiagnostic({
+      stage,
+      organizationId: organization.id,
+      planId,
+      misconfigured: isPaddleMisconfigurationError(error),
+      error: describePaddleError(error),
+    });
+    return { error: GENERIC_CHECKOUT_ERROR };
   }
 
   return {
     checkout: {
-      priceId: plan.paddlePriceId,
+      priceId,
       customerId,
       customData: { organizationId: organization.id, userId: user.id },
     },

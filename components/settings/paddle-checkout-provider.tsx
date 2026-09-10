@@ -33,6 +33,8 @@ declare global {
 type OpenCheckoutResult = { error?: string };
 
 const PADDLE_JS_SRC = "https://cdn.paddle.com/paddle/v2/paddle.js";
+/** A Paddle price id is `pri_…`. The server already validates this; the client re-checks so a bad id fails with a logged reason, not an opaque Paddle.js throw. */
+const PADDLE_PRICE_ID_PATTERN = /^pri_[a-z0-9]+$/;
 /** How long to wait for Paddle.js to finish loading before giving up (it's a ~30 KB CDN script). */
 const SCRIPT_READY_TIMEOUT_MS = 10_000;
 const GENERIC_ERROR = "Could not start checkout. Please try again in a moment.";
@@ -125,6 +127,12 @@ export function PaddleCheckoutProvider({ children }: { children: React.ReactNode
       }
 
       const { priceId, customerId, customData } = result.checkout;
+      if (!PADDLE_PRICE_ID_PATTERN.test(priceId)) {
+        console.error(
+          JSON.stringify({ msg: "paddle_checkout_bad_price_id", prefix: priceId.slice(0, 4) })
+        );
+        return { error: GENERIC_ERROR };
+      }
       try {
         window.Paddle!.Checkout.open({
           items: [{ priceId, quantity: 1 }],
