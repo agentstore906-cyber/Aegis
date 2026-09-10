@@ -9,10 +9,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { createApiKey } from "@/lib/api-keys/repository";
 
-import { POST as eventsPost } from "@/app/api/v1/events/route";
-import { POST as evaluatePost } from "@/app/api/v1/evaluate/route";
+import { POST as eventsHandler } from "@/app/api/v1/events/route";
+import { POST as evaluateHandler } from "@/app/api/v1/evaluate/route";
 import { GET as approvalsGet } from "@/app/api/v1/approvals/[id]/route";
-import { POST as registerPost } from "@/app/api/v1/agents/register/route";
+import { POST as registerHandler } from "@/app/api/v1/agents/register/route";
+
+// The non-dynamic v1 route handlers ignore the route context Next.js passes
+// as the second argument, but its type is still required. Supply the empty
+// context here so these can be invoked directly with just a Request.
+const emptyRouteContext = { params: Promise.resolve<Record<string, string>>({}) };
+const eventsPost = (request: Request) => eventsHandler(request, emptyRouteContext);
+const evaluatePost = (request: Request) => evaluateHandler(request, emptyRouteContext);
+const registerPost = (request: Request) => registerHandler(request, emptyRouteContext);
 
 const RUN_ID = `test_${Date.now()}`;
 
