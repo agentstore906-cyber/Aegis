@@ -16,6 +16,7 @@ import {
   isPaddleMisconfigurationError,
   isValidPaddlePriceId,
   logPaddleEnvDiagnosticsOnce,
+  logPaddlePriceCatalogDiagnosticsOnce,
   resolvePaddleEnvironmentForLog,
   type SafePaddleError,
 } from "@/lib/billing/paddle";
@@ -179,6 +180,14 @@ export async function createCheckoutSessionAction(planId: string): Promise<Check
       });
       return { error: GENERIC_CHECKOUT_ERROR };
     }
+
+    // Confirms this price id actually resolves in Paddle's own catalog for
+    // the resolved environment — a Sandbox price pasted into a Live
+    // deployment, or an archived price/product, both pass the `pri_…` shape
+    // check above but only fail inside Paddle's hosted checkout overlay
+    // itself, which shows nothing more specific than "Something went
+    // wrong." Never throws and never blocks checkout; it only logs.
+    await logPaddlePriceCatalogDiagnosticsOnce();
 
     stage = "customer_create";
     const customerId = await ensurePaddleCustomer({

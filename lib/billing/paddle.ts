@@ -246,6 +246,76 @@ export function logPaddleEnvDiagnosticsOnce(): void {
   }
 }
 
+let priceCatalogDiagnosticsLogged = false;
+
+/**
+ * Verifies each configured price id actually resolves in Paddle's *catalog*
+ * for the resolved environment, and is usable for subscription checkout.
+ * `isValidPaddlePriceId` only checks the `pri_…` shape — it can't tell a
+ * Sandbox price pasted into a Live deployment from a genuine Live price, or
+ * an archived price/product from an active one. Paddle only rejects those
+ * inside its own hosted checkout overlay, *after* `Checkout.open()` has
+ * already been called — which the browser shows as a generic "Something
+ * went wrong" with nothing in any server log. Runs once per server
+ * instance; never throws, and logs no secret (price ids are already
+ * non-sensitive catalog identifiers, not credentials).
+ */
+export async function logPaddlePriceCatalogDiagnosticsOnce(): Promise<void> {
+  if (priceCatalogDiagnosticsLogged) return;
+  priceCatalogDiagnosticsLogged = true;
+
+  const entries: [PlanId, string | undefined][] = [
+    ["startup", process.env.PADDLE_STARTUP_PRICE_ID],
+    ["growth", process.env.PADDLE_GROWTH_PRICE_ID],
+    ["business", process.env.PADDLE_BUSINESS_PRICE_ID],
+  ];
+
+  let paddle: Paddle;
+  try {
+    paddle = getPaddleClient();
+  } catch {
+    return;
+  }
+
+  for (const [planId, rawPriceId] of entries) {
+    const priceId = rawPriceId?.trim();
+    if (!priceId || !isValidPaddlePriceId(priceId)) continue;
+
+    try {
+      const price = await paddle.prices.get(priceId, { include: ["product"] });
+      console.info(
+        JSON.stringify({
+          msg: "paddle_price_catalog_check",
+          planId,
+          priceIdPrefix: priceId.slice(0, 4),
+          priceStatus: price.status,
+          priceType: price.type,
+          billingInterval: price.billingCycle?.interval ?? null,
+          billingFrequency: price.billingCycle?.frequency ?? null,
+          unitPriceAmount: price.unitPrice.amount,
+          unitPriceCurrency: price.unitPrice.currencyCode,
+          productId: price.productId,
+          productStatus: price.product?.status ?? null,
+        })
+      );
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          msg: "paddle_price_catalog_check_failed",
+          planId,
+          priceIdPrefix: priceId.slice(0, 4),
+          error: describePaddleError(error),
+          detail:
+            "Paddle's catalog API rejected this configured price id in the resolved environment — this is " +
+            "the exact failure Paddle's hosted checkout overlay otherwise hides behind its generic " +
+            '"Something went wrong" screen. Most likely a Sandbox price id used with a Live key/token, or ' +
+            "the price/product was archived in the Paddle dashboard.",
+        })
+      );
+    }
+  }
+}
+
 /** Non-sensitive shape of a caught error, safe to log or attach to a diagnostic. */
 export type SafePaddleError = { name: string; code?: string; type?: string; message: string };
 
