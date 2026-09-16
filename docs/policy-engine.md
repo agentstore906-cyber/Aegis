@@ -15,8 +15,9 @@ agent, action, resource, environment, tool, or risk level, and optionally
 gated by one or more `field <operator> value` conditions (all combined with
 AND).
 
-Both layers resolve to the same three decisions: `ALLOW`, `REQUIRE_APPROVAL`,
-`BLOCK`. There is no fourth "maybe" state — the engine always picks one.
+Both layers resolve to the same four decisions: `ALLOW`, `REQUIRE_APPROVAL`,
+`BLOCK`, `ALERT`. There is no fifth "maybe" state — the engine always picks
+one.
 
 ## Evaluation sequence
 
@@ -34,10 +35,14 @@ Load active Policy rows for this agent
 resolveDecision(permission, matchedPolicies, input)
         |                                        (lib/policies/resolver.ts)
         v
-ALLOW / REQUIRE_APPROVAL / BLOCK + human-readable reason
+ALLOW / REQUIRE_APPROVAL / BLOCK / ALERT + human-readable reason
         |
         v
 Persist PolicyEvaluation + a linked ActivityEvent, in one transaction
+        |
+        v
+ALERT only: raise a SecurityAlert (upsertAlertFinding) — the action has
+already proceeded; this is not an enforcement point
 ```
 
 `lib/policies/evaluate.ts` is the only place that orchestrates all of this.
@@ -47,12 +52,20 @@ authenticated SDK ingestion endpoint, without changing its shape.
 
 ## Decision precedence
 
-Severity, strictest first: **BLOCK > REQUIRE_APPROVAL > ALLOW**.
+Severity, strictest first: **BLOCK > REQUIRE_APPROVAL > ALERT > ALLOW**.
 
 The baseline permission and every policy that matches scope + conditions
 each contribute a decision. The engine takes the strictest one across all of
 them — a single matching `BLOCK` always wins, no matter how many other rules
 would `ALLOW`. This holds regardless of a policy's `priority`.
+
+`ALERT` is deliberately *not* an enforcement point: the action proceeds
+exactly as it would under `ALLOW` (see `DECISION_TO_ACTIVITY_STATUS` in
+`lib/policies/evaluate.ts`, which maps it to the `WARNING` activity status,
+never `BLOCKED`). What it adds is a side effect — `evaluateAgentAction`
+raises a `SecurityAlert` (via the same `upsertAlertFinding` every detector
+uses, so it dedupes/audits identically) sized to the winning policy's
+`severity`. Never report an `ALERT` decision as having stopped anything.
 
 **`priority` only breaks ties in the explanation**, not the decision. If two
 policies both land at the winning severity (e.g. two different `BLOCK`

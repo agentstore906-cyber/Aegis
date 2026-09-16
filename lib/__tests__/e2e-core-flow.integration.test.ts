@@ -57,6 +57,7 @@ beforeAll(async () => {
     status: "ACTIVE",
     priority: 10,
     decision: "REQUIRE_APPROVAL",
+    severity: "MEDIUM",
     agentId: agent.id,
     action: "refund.issue",
     conditions: [{ field: "context.amount", operator: "GREATER_THAN", value: 500 }],

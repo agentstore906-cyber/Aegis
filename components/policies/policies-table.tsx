@@ -1,5 +1,5 @@
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/table";
-import { DecisionBadge, PolicyStatusBadge } from "@/components/dashboard/status-badges";
+import { DecisionBadge, PolicyStatusBadge, SecurityAlertSeverityBadge } from "@/components/dashboard/status-badges";
 import { PolicyRowActions } from "@/components/policies/policy-row-actions";
 import { formatDateTime } from "@/lib/utils";
 import type { Policy } from "@prisma/client";
@@ -14,6 +14,7 @@ export function PoliciesTable({ policies, canManage }: { policies: PolicyRow[]; 
           <Th>Name</Th>
           <Th>Status</Th>
           <Th>Decision</Th>
+          <Th>Severity</Th>
           <Th>Priority</Th>
           <Th>Scope</Th>
           <Th>Updated</Th>
@@ -29,6 +30,9 @@ export function PoliciesTable({ policies, canManage }: { policies: PolicyRow[]; 
             </Td>
             <Td>
               <DecisionBadge decision={policy.decision} />
+            </Td>
+            <Td>
+              <SecurityAlertSeverityBadge severity={policy.severity} />
             </Td>
             <Td className="tabular-nums text-muted-foreground">{policy.priority}</Td>
             <Td className="text-muted-foreground">

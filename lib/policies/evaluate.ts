@@ -12,14 +12,21 @@ import { createApprovalRequestForEvaluation } from "@/lib/approvals/repository";
 import { recordAuditEvent } from "@/lib/audit/service";
 import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
 import { runSecurityDetectors } from "@/lib/security/evaluate";
+import { upsertAlertFinding } from "@/lib/security/repository";
+import { SECURITY_ALERT_TYPES } from "@/lib/security/types";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 import { redactSecrets } from "@/lib/security/redact";
 import { trackEvent } from "@/lib/analytics/track";
 
+// ALERT maps to WARNING, not ALLOWED — same "succeeded, but flagged" status
+// risk scoring/detectors use, so the activity feed doesn't pretend a
+// deliberately-configured ALERT policy is indistinguishable from a plain
+// ALLOW. Never BLOCKED: nothing here actually stops the action.
 const DECISION_TO_ACTIVITY_STATUS: Record<PolicyDecision, ActivityStatus> = {
   ALLOW: "ALLOWED",
   REQUIRE_APPROVAL: "APPROVAL_REQUIRED",
   BLOCK: "BLOCKED",
+  ALERT: "WARNING",
 };
 
 /**
@@ -75,6 +82,7 @@ export async function evaluateAgentAction(
         resource: input.resource,
         status: DECISION_TO_ACTIVITY_STATUS[resolved.decision],
         riskLevel: input.riskLevel ?? agent.riskLevel,
+        source: "policy_evaluation",
         durationMs,
         traceId,
         metadata: safeContext,
@@ -147,6 +155,32 @@ export async function evaluateAgentAction(
     });
   }
 
+  // ALERT: the action already proceeded (see DECISION_TO_ACTIVITY_STATUS
+  // above) — this is the "policy detected a violation" side effect, raised
+  // as an ordinary SecurityAlert (upsertAlertFinding dedupes/audits it the
+  // same as every detector-sourced finding) rather than a bespoke path.
+  let alertId: string | undefined;
+  if (resolved.decision === "ALERT") {
+    const winner = resolved.winningPolicySnapshot;
+    const { alert } = await upsertAlertFinding(input.organizationId, {
+      type: SECURITY_ALERT_TYPES.POLICY_ALERT,
+      severity: winner?.severity ?? "MEDIUM",
+      agentId: input.agentId,
+      title: winner ? `Policy alert: ${winner.name}` : `Policy alert: ${input.action}`,
+      description: resolved.reason,
+      evidence: {
+        action: input.action,
+        resource: input.resource ?? null,
+        environment: input.environment ?? null,
+        tool: input.tool ?? null,
+        riskLevel: input.riskLevel ?? null,
+        context: safeContext ?? null,
+      },
+      traceId,
+    });
+    alertId = alert.id;
+  }
+
   await runSecurityDetectors({
     organizationId: input.organizationId,
     agent: { id: agent.id, name: agent.name },
@@ -165,6 +199,7 @@ export async function evaluateAgentAction(
     matchedPermissionSnapshot: resolved.matchedPermissionSnapshot,
     evaluationId: evaluation.id,
     approvalRequestId,
+    alertId,
     traceId,
   };
 }

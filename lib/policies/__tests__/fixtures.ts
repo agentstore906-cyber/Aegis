@@ -1,4 +1,10 @@
-import type { AgentPermission, PolicyCondition, PolicyDecision, PolicyStatus } from "@prisma/client";
+import type {
+  AgentPermission,
+  PolicyCondition,
+  PolicyDecision,
+  PolicyStatus,
+  SecurityAlertSeverity,
+} from "@prisma/client";
 import type { PolicyWithConditions } from "@/lib/policies/matcher";
 import type { PolicyEvaluationInput } from "@/lib/policies/types";
 
@@ -29,6 +35,7 @@ export function makePolicy(overrides: Partial<PolicyWithConditions> = {}): Polic
     status: "ACTIVE" as PolicyStatus,
     priority: 100,
     decision: "BLOCK" as PolicyDecision,
+    severity: "MEDIUM" as SecurityAlertSeverity,
     agentId: null,
     action: "customer.delete",
     resource: null,

@@ -4,7 +4,12 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useRef, useTransition } from "react";
 import { Search } from "lucide-react";
 import { Input, Select } from "@/components/ui/field";
-import { ACTIVITY_RISK_LEVELS, ACTIVITY_STATUSES, ACTIVITY_RANGES } from "@/lib/validation/activity";
+import {
+  ACTIVITY_RISK_LEVELS,
+  ACTIVITY_STATUSES,
+  ACTIVITY_RANGES,
+  ACTIVITY_EVENT_TYPES,
+} from "@/lib/validation/activity";
 
 const RANGE_LABELS: Record<(typeof ACTIVITY_RANGES)[number], string> = {
   "24h": "Last 24 hours",
@@ -13,7 +18,13 @@ const RANGE_LABELS: Record<(typeof ACTIVITY_RANGES)[number], string> = {
   all: "All time",
 };
 
-export function ActivityFilters({ agents }: { agents: { id: string; name: string }[] }) {
+export function ActivityFilters({
+  agents,
+  toolNames = [],
+}: {
+  agents: { id: string; name: string }[];
+  toolNames?: string[];
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -47,7 +58,7 @@ export function ActivityFilters({ agents }: { agents: { id: string; name: string
         />
         <Input
           type="search"
-          placeholder="Search action or resource…"
+          placeholder="Search action, resource, or tool…"
           defaultValue={searchParams.get("q") ?? ""}
           onChange={(e) => updateParamDebounced("q", e.target.value)}
           className="pl-8"
@@ -96,6 +107,36 @@ export function ActivityFilters({ agents }: { agents: { id: string; name: string
           </option>
         ))}
       </Select>
+
+      <Select
+        defaultValue={searchParams.get("eventType") ?? ""}
+        onChange={(e) => updateParam("eventType", e.target.value)}
+        className="sm:w-40"
+        aria-label="Filter by event type"
+      >
+        <option value="">All event types</option>
+        {ACTIVITY_EVENT_TYPES.map((type) => (
+          <option key={type} value={type}>
+            {type.replaceAll("_", " ")}
+          </option>
+        ))}
+      </Select>
+
+      {toolNames.length > 0 && (
+        <Select
+          defaultValue={searchParams.get("toolName") ?? ""}
+          onChange={(e) => updateParam("toolName", e.target.value)}
+          className="sm:w-36"
+          aria-label="Filter by tool"
+        >
+          <option value="">All tools</option>
+          {toolNames.map((tool) => (
+            <option key={tool} value={tool}>
+              {tool}
+            </option>
+          ))}
+        </Select>
+      )}
 
       <Select
         defaultValue={searchParams.get("range") ?? "all"}

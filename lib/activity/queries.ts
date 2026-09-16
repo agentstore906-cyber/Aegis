@@ -32,12 +32,16 @@ export async function listActivityEvents(
     ...(filters.agentId ? { agentId: filters.agentId } : {}),
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.riskLevel ? { riskLevel: filters.riskLevel } : {}),
+    ...(filters.eventType ? { eventType: filters.eventType } : {}),
+    ...(filters.toolName ? { toolName: filters.toolName } : {}),
     ...(since ? { timestamp: { gte: since } } : {}),
     ...(filters.q
       ? {
           OR: [
             { action: { contains: filters.q, mode: "insensitive" } },
             { resource: { contains: filters.q, mode: "insensitive" } },
+            { description: { contains: filters.q, mode: "insensitive" } },
+            { toolName: { contains: filters.q, mode: "insensitive" } },
           ],
         }
       : {}),
@@ -60,6 +64,18 @@ export async function listActivityEvents(
     pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
     pageSize: PAGE_SIZE,
   };
+}
+
+/** Distinct, non-null tool names reported for this org — populates the Activity page's Tool filter. */
+export async function listDistinctToolNames(organizationId: string): Promise<string[]> {
+  const rows = await prisma.activityEvent.findMany({
+    where: { organizationId, toolName: { not: null } },
+    distinct: ["toolName"],
+    select: { toolName: true },
+    orderBy: { toolName: "asc" },
+    take: 100,
+  });
+  return rows.map((r) => r.toolName).filter((name): name is string => name !== null);
 }
 
 export async function getActivityEvent(organizationId: string, id: string) {
@@ -95,14 +111,38 @@ export async function getAgentActivity(organizationId: string, agentId: string, 
   });
 }
 
-/** Feeds Agent Detail's risk overview — blocked/approval-required counts in a recent window. */
+/** Feeds Agent Detail's Agent Health card — every count is a real, indexed query over a recent window, never a fabricated number. */
 export async function getAgentActivityStatusCounts(organizationId: string, agentId: string, sinceHours = 24) {
   const since = new Date(Date.now() - sinceHours * 60 * 60 * 1000);
-  const [blocked, approvalRequired] = await Promise.all([
+  const [total, blocked, approvalRequired, warnings, highRisk] = await Promise.all([
+    prisma.activityEvent.count({ where: { organizationId, agentId, timestamp: { gte: since } } }),
     prisma.activityEvent.count({ where: { organizationId, agentId, status: "BLOCKED", timestamp: { gte: since } } }),
     prisma.activityEvent.count({ where: { organizationId, agentId, status: "APPROVAL_REQUIRED", timestamp: { gte: since } } }),
+    prisma.activityEvent.count({ where: { organizationId, agentId, status: "WARNING", timestamp: { gte: since } } }),
+    prisma.activityEvent.count({
+      where: { organizationId, agentId, riskLevel: { in: ["HIGH", "CRITICAL"] }, timestamp: { gte: since } },
+    }),
   ]);
-  return { blocked, approvalRequired };
+  return { total, blocked, approvalRequired, warnings, highRisk };
+}
+
+/** Actions in the last rolling hour — the "500 actions this hour" side of the volume-spike detector. */
+export async function getActionsInLastHourForAgent(organizationId: string, agentId: string): Promise<number> {
+  return prisma.activityEvent.count({
+    where: { organizationId, agentId, timestamp: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
+  });
+}
+
+/** Average actions/hour over the 7 days before the current hour — excludes the current hour so a spike can't dilute its own baseline. */
+export async function getTrailingHourlyAverageForAgent(organizationId: string, agentId: string): Promise<number> {
+  const currentHourStart = new Date(Math.floor(Date.now() / (60 * 60 * 1000)) * 60 * 60 * 1000);
+  const sevenDaysAgo = new Date(currentHourStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  const count = await prisma.activityEvent.count({
+    where: { organizationId, agentId, timestamp: { gte: sevenDaysAgo, lt: currentHourStart } },
+  });
+
+  return count / (7 * 24);
 }
 
 export async function getOrgEventCount(organizationId: string) {
@@ -120,6 +160,46 @@ export async function getOrgSpendSummary(organizationId: string) {
   });
 
   return result._sum.costCents ?? 0;
+}
+
+function startOfUtcDay(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+/**
+ * Today's count of events matching an extra filter, for one agent — the
+ * "today" side of a baseline-relative spike detector (see
+ * lib/security/detectors.ts's detectDataAccessSpike,
+ * detectDeleteActivitySpike, detectExternalCommunicationSpike). Generic
+ * over `extraWhere` so those three detectors share one query shape instead
+ * of three near-duplicate functions.
+ */
+export async function getTodayEventCountForAgent(
+  organizationId: string,
+  agentId: string,
+  extraWhere: Prisma.ActivityEventWhereInput = {}
+): Promise<number> {
+  const since = startOfUtcDay(new Date());
+  return prisma.activityEvent.count({ where: { organizationId, agentId, timestamp: { gte: since }, ...extraWhere } });
+}
+
+/**
+ * Trailing 7-day daily average count of events matching an extra filter,
+ * excluding today — same "exclude today so a spike can't dilute its own
+ * baseline" convention as getTrailingDailyAverageCentsForAgent
+ * (lib/costs/queries.ts).
+ */
+export async function getTrailingDailyAverageEventCountForAgent(
+  organizationId: string,
+  agentId: string,
+  extraWhere: Prisma.ActivityEventWhereInput = {}
+): Promise<number> {
+  const todayStart = startOfUtcDay(new Date());
+  const sevenDaysAgo = new Date(todayStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const count = await prisma.activityEvent.count({
+    where: { organizationId, agentId, timestamp: { gte: sevenDaysAgo, lt: todayStart }, ...extraWhere },
+  });
+  return count / 7;
 }
 
 export async function getRiskEventCount(organizationId: string) {

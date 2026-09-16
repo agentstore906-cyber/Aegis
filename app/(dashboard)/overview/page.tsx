@@ -13,18 +13,19 @@ import {
 } from "@/lib/activity/queries";
 import { getPolicyDashboardStats } from "@/lib/policies/repository";
 import { getApprovalStats, getOrgApprovalCount } from "@/lib/approvals/repository";
-import { getSecurityStats } from "@/lib/security/repository";
+import { getSecurityStats, getHighRiskAgentsSummary, listRecentAnomalies } from "@/lib/security/repository";
+import { getAllBudgetStatuses } from "@/lib/costs/budgets";
 import { getOnboardingStatus } from "@/lib/onboarding/status";
 import { formatCurrency, formatDateTime, formatRelativeTime } from "@/lib/utils";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { AgentStatusBadge, RiskBadge } from "@/components/dashboard/status-badges";
+import { AgentStatusBadge, RiskBadge, SecurityAlertSeverityBadge } from "@/components/dashboard/status-badges";
 import { ActivityRow } from "@/components/activity/activity-row";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ButtonLink } from "@/components/ui/button";
-import { OnboardingChecklist, type OnboardingStepConfig } from "@/components/dashboard/onboarding-checklist";
+import { OnboardingChecklist, STEPS, type OnboardingStepConfig } from "@/components/dashboard/onboarding-checklist";
 
 export const metadata: Metadata = { title: "Overview" };
 
@@ -90,16 +91,31 @@ export default async function OverviewPage() {
     );
   }
 
-  const [needsAttention, recentActivity, spendCents, riskEvents, policyStats, approvalStats, securityStats] =
-    await Promise.all([
-      getAgentsNeedingAttention(organization.id),
-      getRecentActivity(organization.id, 8),
-      getOrgSpendSummary(organization.id),
-      getRiskEventCount(organization.id),
-      getPolicyDashboardStats(organization.id),
-      getApprovalStats(organization.id),
-      getSecurityStats(organization.id),
-    ]);
+  const [
+    needsAttention,
+    recentActivity,
+    spendCents,
+    riskEvents,
+    policyStats,
+    approvalStats,
+    securityStats,
+    highRiskAgents,
+    recentAnomalies,
+    budgetStatuses,
+  ] = await Promise.all([
+    getAgentsNeedingAttention(organization.id),
+    getRecentActivity(organization.id, 8),
+    getOrgSpendSummary(organization.id),
+    getRiskEventCount(organization.id),
+    getPolicyDashboardStats(organization.id),
+    getApprovalStats(organization.id),
+    getSecurityStats(organization.id),
+    getHighRiskAgentsSummary(organization.id, 5),
+    listRecentAnomalies(organization.id, 5),
+    getAllBudgetStatuses(organization.id),
+  ]);
+
+  const exceededBudgetCount = budgetStatuses.filter((s) => s.exceeded).length;
 
   const attentionItems = [
     {
@@ -126,8 +142,21 @@ export default async function OverviewPage() {
       href: "/policies/evaluations?decision=BLOCK",
       icon: ShieldBan,
     },
+    {
+      label: "Budgets exceeded",
+      count: exceededBudgetCount,
+      href: "/costs",
+      icon: DollarSign,
+    },
   ];
   const totalAttentionCount = attentionItems.reduce((sum, item) => sum + item.count, 0);
+
+  // A personal workspace has no one to invite — the settings page hides the
+  // Members/Invite UI entirely for accountType PERSONAL (see
+  // app/(dashboard)/settings/organization/page.tsx), so don't dangle a
+  // checklist step that points at a form that isn't there.
+  const isPersonal = organization.accountType === "PERSONAL";
+  const checklistSteps = isPersonal ? STEPS.filter((step) => step.key !== "teammateInvited") : STEPS;
 
   return (
     <div>
@@ -136,16 +165,16 @@ export default async function OverviewPage() {
         description={`What's happening across ${organization.name}'s agents right now.`}
       />
 
-      <OnboardingChecklist status={onboardingStatus} />
+      <OnboardingChecklist status={onboardingStatus} steps={checklistSteps} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard label="Agents" value={String(stats.total)} icon={Bot} />
         <StatCard label="Active" value={String(stats.active)} icon={CheckCircle2} />
         <StatCard
           label="Need attention"
-          value={String(stats.needsAttention + stats.paused)}
+          value={String(stats.needsAttention + stats.paused + stats.stopped)}
           icon={AlertTriangle}
-          tone={stats.needsAttention > 0 ? "warning" : undefined}
+          tone={stats.needsAttention > 0 || stats.stopped > 0 ? "warning" : undefined}
         />
         <StatCard
           label="Pending approvals"
@@ -238,10 +267,101 @@ export default async function OverviewPage() {
                     agentSlug={event.agent.slug}
                     action={event.action}
                     resource={event.resource}
+                    toolName={event.toolName}
+                    description={event.description}
                     status={event.status}
                   />
                 ))}
               </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>High-risk agents</CardTitle>
+            <Link
+              href="/security"
+              className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              View all
+              <ArrowRight className="size-3" aria-hidden="true" />
+            </Link>
+          </CardHeader>
+          <CardContent className="p-0">
+            {highRiskAgents.length === 0 ? (
+              <div className="px-5 py-10">
+                <EmptyState
+                  icon={ShieldAlert}
+                  title="No high-risk agents"
+                  description="Agents with open high or critical security alerts will appear here."
+                />
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {highRiskAgents.map(({ agent, highOrCriticalAlertCount, criticalAlertCount }) => (
+                  <li key={agent.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                    <Link
+                      href={`/agents/${agent.slug}`}
+                      className="min-w-0 truncate text-sm font-medium text-foreground hover:underline"
+                    >
+                      {agent.name}
+                    </Link>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <RiskBadge level={agent.riskLevel} />
+                      <span className="text-xs text-muted-foreground">
+                        {criticalAlertCount > 0
+                          ? `${criticalAlertCount} critical`
+                          : `${highOrCriticalAlertCount} high-severity`}{" "}
+                        alert{highOrCriticalAlertCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent anomalies</CardTitle>
+            <Link
+              href="/security"
+              className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              View all
+              <ArrowRight className="size-3" aria-hidden="true" />
+            </Link>
+          </CardHeader>
+          <CardContent className="p-0">
+            {recentAnomalies.length === 0 ? (
+              <div className="px-5 py-10">
+                <EmptyState
+                  icon={Activity}
+                  title="No anomalies detected"
+                  description="Unusual volume, cost, data access, or failure patterns will appear here."
+                />
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {recentAnomalies.map((alert) => (
+                  <li key={alert.id} className="px-5 py-3">
+                    <Link
+                      href={`/security/${alert.id}`}
+                      className="flex items-center justify-between gap-3 text-sm hover:underline"
+                    >
+                      <span className="min-w-0 truncate font-medium text-foreground">{alert.title}</span>
+                      <SecurityAlertSeverityBadge severity={alert.severity} />
+                    </Link>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {alert.agent.name} · {formatRelativeTime(alert.lastSeenAt)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
             )}
           </CardContent>
         </Card>
@@ -301,7 +421,7 @@ export default async function OverviewPage() {
           </Link>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-4 text-center sm:text-left">
+          <div className="grid grid-cols-2 gap-4 text-center sm:grid-cols-4 sm:text-left">
             <div>
               <p className="text-2xl font-semibold tabular-nums text-success">{policyStats.last24h.ALLOW}</p>
               <p className="text-xs text-muted-foreground">Allowed</p>
@@ -311,6 +431,10 @@ export default async function OverviewPage() {
                 {policyStats.last24h.REQUIRE_APPROVAL}
               </p>
               <p className="text-xs text-muted-foreground">Approval required</p>
+            </div>
+            <div>
+              <p className="text-2xl font-semibold tabular-nums text-info">{policyStats.last24h.ALERT}</p>
+              <p className="text-xs text-muted-foreground">Alerted</p>
             </div>
             <div>
               <p className="text-2xl font-semibold tabular-nums text-danger">{policyStats.last24h.BLOCK}</p>

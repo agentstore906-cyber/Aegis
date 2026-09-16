@@ -53,6 +53,7 @@ export default async function ActivityEventPage({
         </div>
       </div>
 
+      {event.description && <p className="mb-4 text-sm text-muted-foreground">{event.description}</p>}
       {event.errorMessage && <Alert tone="danger">{event.errorMessage}</Alert>}
 
       <Card className="mt-4">
@@ -63,6 +64,8 @@ export default async function ActivityEventPage({
           <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
             <Field label="Event type" value={event.eventType.replaceAll("_", " ")} />
             <Field label="Resource" value={event.resource ?? "—"} />
+            <Field label="Tool" value={event.toolName ?? "—"} />
+            <Field label="Source" value={event.source} />
             <Field label="Duration" value={event.durationMs != null ? `${event.durationMs}ms` : "—"} />
             <Field
               label="Model"

@@ -203,6 +203,7 @@ function parsePolicyFormData(formData: FormData) {
     status: formData.get("status"),
     priority: formData.get("priority"),
     decision: formData.get("decision"),
+    severity: formData.get("severity"),
     agentId: formData.get("agentId") ?? "",
     action: formData.get("action"),
     resource: formData.get("resource") ?? "",
@@ -224,6 +225,7 @@ function parsePolicyFormData(formData: FormData) {
       status: parsed.data.status,
       priority: parsed.data.priority,
       decision: parsed.data.decision,
+      severity: parsed.data.severity,
       agentId: parsed.data.agentId || null,
       action: parsed.data.action,
       resource: parsed.data.resource || null,
@@ -265,7 +267,7 @@ export async function createPolicyAction(
       entityType: "Policy",
       entityId: policy.id,
       action: policy.action,
-      metadata: { name: policy.name, decision: policy.decision },
+      metadata: { name: policy.name, decision: policy.decision, severity: policy.severity },
     });
     return policy;
   });
@@ -307,7 +309,7 @@ export async function updatePolicyAction(
       entityType: "Policy",
       entityId: updated.id,
       action: updated.action,
-      metadata: { name: updated.name, decision: updated.decision },
+      metadata: { name: updated.name, decision: updated.decision, severity: updated.severity },
     });
     return updated;
   });

@@ -4,6 +4,7 @@ import type {
   AgentStatus,
   ApprovalStatus,
   AuditResult,
+  ConnectionStatus,
   PolicyDecision,
   PolicyStatus,
   RiskLevel,
@@ -23,6 +24,12 @@ export function AgentStatusBadge({ status }: { status: AgentStatus }) {
       return (
         <Badge tone="neutral" dot>
           Paused
+        </Badge>
+      );
+    case "STOPPED":
+      return (
+        <Badge tone="danger" dot>
+          Stopped
         </Badge>
       );
     case "NEEDS_ATTENTION":
@@ -71,6 +78,12 @@ export function DecisionBadge({ decision }: { decision: PolicyDecision }) {
       return (
         <Badge tone="danger" dot>
           Block
+        </Badge>
+      );
+    case "ALERT":
+      return (
+        <Badge tone="info" dot>
+          Alert
         </Badge>
       );
   }
@@ -151,6 +164,12 @@ export function ActivityStatusBadge({ status }: { status: ActivityStatus }) {
           Failed
         </Badge>
       );
+    case "WARNING":
+      return (
+        <Badge tone="warning" dot>
+          Warning
+        </Badge>
+      );
   }
 }
 
@@ -164,6 +183,49 @@ export function SecurityAlertSeverityBadge({ severity }: { severity: SecurityAle
       return <Badge tone="warning">High</Badge>;
     case "CRITICAL":
       return <Badge tone="danger">Critical</Badge>;
+  }
+}
+
+export function ConnectionStatusBadge({ status }: { status: ConnectionStatus }) {
+  switch (status) {
+    case "CONNECTED":
+      return (
+        <Badge tone="success" dot>
+          Connected
+        </Badge>
+      );
+    case "CONNECTING":
+      return (
+        <Badge tone="info" dot>
+          Connecting
+        </Badge>
+      );
+    case "VERIFYING":
+      return (
+        <Badge tone="info" dot>
+          Verifying
+        </Badge>
+      );
+    case "DEGRADED":
+      return (
+        <Badge tone="warning" dot>
+          Degraded
+        </Badge>
+      );
+    case "RECONNECT_REQUIRED":
+      return (
+        <Badge tone="warning" dot>
+          Needs reconnect
+        </Badge>
+      );
+    case "DISCONNECTED":
+      return <Badge tone="neutral">Disconnected</Badge>;
+    case "FAILED":
+      return (
+        <Badge tone="danger" dot>
+          Failed
+        </Badge>
+      );
   }
 }
 

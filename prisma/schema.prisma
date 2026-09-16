@@ -45,6 +45,8 @@ model User {
   sentInvitations            OrganizationInvitation[]
   featureRequests            FeatureRequest[]
   featureRequestVotes        FeatureRequestVote[]
+  createdBudgets             Budget[]
+  createdAgentConnections    AgentConnection[]
 
   @@map("users")
 }
@@ -95,11 +97,25 @@ model VerificationToken {
 // Multi-tenancy
 // ---------------------------------------------------------------------------
 
+enum AccountType {
+  PERSONAL
+  TEAM
+  ENTERPRISE
+}
+
 model Organization {
-  id   String @id @default(cuid())
-  name String
-  slug String @unique
-  plan String @default("free")
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  plan        String      @default("free")
+  // Personal/Team/Enterprise use-case, chosen during onboarding. Defaults to
+  // TEAM so every pre-existing organization keeps behaving exactly as
+  // before — this column only changes how new organizations are labeled and
+  // how the dashboard presents member/invite/team UI (see
+  // app/(dashboard)/settings/organization/page.tsx); it is not an
+  // access-control boundary and never affects organizationId-scoped
+  // isolation.
+  accountType AccountType @default(TEAM)
 
   // Billing. `plan` above is the actual source of truth Aegis enforces
   // entitlements against (see lib/billing/plans.ts); these fields mirror
@@ -147,6 +163,8 @@ model Organization {
   invitations       OrganizationInvitation[]
   webhookEndpoints  WebhookEndpoint[]
   featureRequests   FeatureRequest[]
+  budgets           Budget[]
+  agentConnections  AgentConnection[]
 
   @@map("organizations")
 }
@@ -183,6 +201,11 @@ model OrganizationMember {
 enum AgentStatus {
   ACTIVE
   PAUSED
+  // Kill-switch state — stronger than PAUSED. Both states mean the same
+  // thing technically (Aegis has no enforcement connector for either, see
+  // lib/enforcement/); STOPPED exists as a distinct signal of operator
+  // intent ("shut this down, not just temporarily pause it").
+  STOPPED
   NEEDS_ATTENTION
   ARCHIVED
 }
@@ -233,11 +256,101 @@ model Agent {
   approvalRequests  ApprovalRequest[]
   auditEvents       AuditEvent[]
   securityAlerts    SecurityAlert[]
+  budgets           Budget[]
+  connection        AgentConnection?
 
   @@unique([organizationId, slug])
   @@index([organizationId, status])
   @@index([teamId])
   @@map("agents")
+}
+
+// ---------------------------------------------------------------------------
+// Agent connections — real, verified links between an Agent record and the
+// provider it actually runs on. Replaces free-typed modelProvider/modelName
+// entry with an actual technical connection: a credential Aegis verified
+// against the provider's own API (OPENAI/ANTHROPIC), or the existing
+// SDK/API-key ingestion path (CUSTOM_SDK). See lib/connectors/ for the
+// connector implementations and docs/connect-agent.md for the full design.
+//
+// One row per Agent (1:1) — an agent that predates this feature (created by
+// the old manual form) simply has no AgentConnection row; it keeps working
+// exactly as before and is never retroactively "disconnected".
+// ---------------------------------------------------------------------------
+
+enum ConnectorType {
+  OPENAI
+  ANTHROPIC
+  CUSTOM_SDK
+}
+
+enum ConnectionStatus {
+  CONNECTING
+  VERIFYING
+  CONNECTED
+  DEGRADED
+  RECONNECT_REQUIRED
+  DISCONNECTED
+  FAILED
+}
+
+model AgentConnection {
+  id             String @id @default(cuid())
+  organizationId String
+  agentId        String @unique
+
+  connectorType ConnectorType
+  status        ConnectionStatus @default(CONNECTED)
+
+  // Provider-side identity, when known. externalAccountLabel is a
+  // display-only masked identifier (e.g. "sk-...ab12") — NEVER the raw
+  // credential. externalAgentId is the provider's own id for the
+  // discovered resource (e.g. an OpenAI assistant id) — null for
+  // ANTHROPIC (no discovery API exists there) and CUSTOM_SDK (no
+  // provider-side resource to reference).
+  externalAccountLabel String?
+  externalAgentId      String?
+
+  // Encrypted credential, OPENAI/ANTHROPIC only — see
+  // lib/connectors/crypto.ts (AES-256-GCM, key derived from AUTH_SECRET).
+  // Null for CUSTOM_SDK, which authenticates ingestion via ApiKey instead
+  // of a stored provider credential. Cleared (set back to null) on
+  // disconnect — see lib/agents/connection-service.ts.
+  credentialCiphertext String? @db.Text
+  credentialIv         String?
+  credentialAuthTag    String?
+
+  // The Aegis API key auto-provisioned for this connection's SDK
+  // ingestion, if one was created at connect time (CUSTOM_SDK only) — lets
+  // disconnect() revoke precisely this key without touching any other key
+  // the organization uses. SetNull (not Cascade): revoking/deleting the
+  // key from Developers > API Keys should not delete connection history.
+  apiKeyId String?
+
+  // Snapshot of AgentConnector.capabilities (lib/connectors/types.ts) at
+  // connect time. The UI must never present an affordance this doesn't
+  // list as true — see the "truthful capabilities" rule in
+  // docs/connect-agent.md.
+  capabilities Json
+
+  connectedAt       DateTime  @default(now())
+  disconnectedAt    DateTime?
+  lastVerifiedAt    DateTime?
+  lastHealthCheckAt DateTime?
+  lastHealthError   String?   @db.Text
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  apiKey       ApiKey?      @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([apiKeyId])
+  @@map("agent_connections")
 }
 
 model AgentTool {
@@ -277,6 +390,10 @@ enum ActivityStatus {
   BLOCKED
   APPROVAL_REQUIRED
   FAILED
+  // Succeeded, but flagged as unusual/suspicious by risk scoring or a
+  // detector — distinct from FAILED (the action itself didn't error) and
+  // from BLOCKED (nothing stopped it). See lib/security/risk-scoring.ts.
+  WARNING
 }
 
 model ActivityEvent {
@@ -286,9 +403,18 @@ model ActivityEvent {
 
   timestamp DateTime @default(now())
 
-  eventType ActivityType
-  action    String // machine-readable action code, e.g. "read_crm_contact"
-  resource  String? // e.g. "contact:acme-inc", "invoice:inv_1234"
+  eventType   ActivityType
+  action      String // machine-readable action code, e.g. "read_crm_contact"
+  resource    String? // e.g. "contact:acme-inc", "invoice:inv_1234" — this event's target
+  description String?      @db.Text // optional human-readable summary supplied by the caller, e.g. "Read customer record for Acme Corp"
+  toolName    String? // e.g. "CRM", "Zendesk" — which tool/integration performed this action, when known
+  // How this row entered Aegis: "api" for a directly-reported event
+  // (POST /api/v1/events) vs "policy_evaluation" for one created inline by
+  // evaluateAgentAction(). Not an access-control concept — purely
+  // provenance, so the UI/API can be honest about what was actually
+  // observed vs decided (see AGENTS.md "WHAT THE AGENT DID, not only WHAT
+  // THE AGENT SAID IT DID").
+  source      String       @default("api")
 
   status    ActivityStatus @default(ALLOWED)
   riskLevel RiskLevel      @default(LOW)
@@ -349,6 +475,11 @@ enum PolicyDecision {
   ALLOW
   REQUIRE_APPROVAL
   BLOCK
+  // The action is allowed to proceed — this is NOT an enforcement point —
+  // but the match is recorded as a detected violation and raises a
+  // SecurityAlert (lib/security/repository.ts#upsertAlertFinding). Never
+  // conflate this with BLOCK: nothing here actually stops the action.
+  ALERT
 }
 
 enum PolicyStatus {
@@ -400,10 +531,14 @@ model Policy {
   organizationId String
 
   name        String
-  description String?        @db.Text
-  status      PolicyStatus   @default(ACTIVE)
-  priority    Int            @default(100) // higher = considered more specific when explaining ties
+  description String?               @db.Text
+  status      PolicyStatus          @default(ACTIVE)
+  priority    Int                   @default(100) // higher = considered more specific when explaining ties
   decision    PolicyDecision
+  // How urgent a violation of this policy is. Drives the SecurityAlert's
+  // severity when decision is ALERT; otherwise informational (shown in the
+  // UI so BLOCK/REQUIRE_APPROVAL policies can still be triaged by impact).
+  severity    SecurityAlertSeverity @default(MEDIUM)
 
   // Scope — all optional except action; unset fields mean "matches any".
   agentId     String? // null = applies to any agent in the org
@@ -658,6 +793,7 @@ model ApiKey {
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy          User?               @relation(fields: [createdById], references: [id], onDelete: SetNull)
   idempotencyRecords IdempotencyRecord[]
+  agentConnections   AgentConnection[]
 
   @@index([organizationId, revokedAt])
   @@map("api_keys")
@@ -759,18 +895,32 @@ enum SecurityAlertStatus {
   RESOLVED
 }
 
+// How sure the detector is, distinct from severity (how bad it would be if
+// true). A heuristic indicator (e.g. prompt-injection keyword match) must
+// never be reported as certain — see lib/security/detectors.ts.
+enum SecurityAlertConfidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 model SecurityAlert {
   id             String @id @default(cuid())
   organizationId String
   agentId        String
 
-  type        String
-  severity    SecurityAlertSeverity
-  status      SecurityAlertStatus   @default(OPEN)
-  title       String
-  description String                @db.Text
-  evidence    Json?
-  traceId     String?
+  type              String
+  severity          SecurityAlertSeverity
+  status            SecurityAlertStatus      @default(OPEN)
+  title             String
+  description       String                   @db.Text
+  evidence          Json?
+  traceId           String?
+  // Null = the detector didn't rate its own confidence (most existing
+  // baseline-relative detectors are deterministic, not probabilistic, so
+  // this is only set by heuristic/indicator-style detectors).
+  confidence        SecurityAlertConfidence?
+  recommendedAction String?                  @db.Text
 
   count       Int      @default(1)
   firstSeenAt DateTime @default(now())
@@ -797,6 +947,45 @@ model SecurityAlert {
   @@index([agentId, type])
   @@index([organizationId, firstSeenAt])
   @@map("security_alerts")
+}
+
+// ---------------------------------------------------------------------------
+// Budgets — pure monitoring, not enforcement. Aegis has no mechanism to
+// actually stop an agent from spending; exceeding a budget raises a
+// SecurityAlert ("Budget exceeded — alert triggered"), never a claim that
+// spending was blocked. See lib/costs/budgets.ts.
+// ---------------------------------------------------------------------------
+
+enum BudgetPeriod {
+  DAILY
+  MONTHLY
+}
+
+model Budget {
+  id             String  @id @default(cuid())
+  organizationId String
+  // Null = organization-wide budget. Set = this one agent's own budget,
+  // checked independently of (and in addition to) any org-wide budget.
+  agentId        String?
+
+  period                  BudgetPeriod
+  limitCents              Int
+  warningThresholdPercent Int          @default(80)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent?       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  // No DB-level uniqueness on (organizationId, agentId, period): Postgres
+  // treats NULLs as distinct, so it can't stop two org-wide (agentId=null)
+  // budgets for the same period — that's enforced in lib/costs/budgets.ts
+  // instead, at the application layer.
+  @@index([organizationId, agentId])
+  @@map("budgets")
 }
 
 // ---------------------------------------------------------------------------
@@ -1060,8 +1249,8 @@ model ArenaScenarioResult {
   title       String
   passed      Boolean
   score       Int // 0–100 for this scenario
-  weight      Int    @default(1)
-  detail      String @db.Text
+  weight      Int     @default(1)
+  detail      String  @db.Text
 
   createdAt DateTime @default(now())
 

@@ -15,12 +15,12 @@ const geistMono = Geist_Mono({
 
 const SITE_NAME = "Aegis";
 const DESCRIPTION =
-  "Monitor, control, secure, and audit every AI agent your company runs — from one place.";
+  "Monitor, control, secure, and audit every AI agent you use — from one place.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(getSiteUrl()),
   title: {
-    default: "Aegis — The Control Plane for AI Agents",
+    default: "Aegis — The Control Center for AI Agents",
     template: "%s — Aegis",
   },
   description: DESCRIPTION,
@@ -28,13 +28,13 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: SITE_NAME,
-    title: "Aegis — The Control Plane for AI Agents",
+    title: "Aegis — The Control Center for AI Agents",
     description: DESCRIPTION,
     url: "/",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Aegis — The Control Plane for AI Agents",
+    title: "Aegis — The Control Center for AI Agents",
     description: DESCRIPTION,
   },
 };

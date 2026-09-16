@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const AGENT_RISK_LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 export const AGENT_ENVIRONMENTS = ["PRODUCTION", "STAGING", "DEVELOPMENT"] as const;
-export const AGENT_STATUSES = ["ACTIVE", "PAUSED", "NEEDS_ATTENTION", "ARCHIVED"] as const;
+export const AGENT_STATUSES = ["ACTIVE", "PAUSED", "STOPPED", "NEEDS_ATTENTION", "ARCHIVED"] as const;
 
 export const createAgentSchema = z.object({
   name: z.string().trim().min(2, "Name must be at least 2 characters").max(80),

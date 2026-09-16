@@ -4,7 +4,7 @@ import Link from "next/link";
 import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Download } from "lucide-react";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
-import { canViewCosts } from "@/lib/costs/authorization";
+import { canViewCosts, canManageBudgets } from "@/lib/costs/authorization";
 import {
   getSpendSummary,
   getSpendByAgent,
@@ -12,7 +12,10 @@ import {
   getSpendByModel,
   getSpendByTaskType,
   getSpendByTeam,
+  getEstimatedAdditionalSpendCentsThisMonth,
 } from "@/lib/costs/queries";
+import { getAllBudgetStatuses } from "@/lib/costs/budgets";
+import { listAllAgentsForOrg } from "@/lib/agents/queries";
 import { listSecurityAlertsByType } from "@/lib/security/repository";
 import { SECURITY_ALERT_TYPES } from "@/lib/security/types";
 import { formatCurrency } from "@/lib/utils";
@@ -22,6 +25,8 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { AgentSpendTable } from "@/components/costs/agent-spend-table";
 import { SpendBreakdownList } from "@/components/costs/spend-breakdown-list";
+import { BudgetsPanel } from "@/components/costs/budgets-panel";
+import { BudgetForm } from "@/components/costs/budget-form";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ButtonLink } from "@/components/ui/button";
 
@@ -31,18 +36,23 @@ export default async function CostsPage() {
   const { organization, role } = await requireActiveOrganization();
   if (!canViewCosts(role)) notFound();
 
-  const [summary, byAgent, byProvider, byModel, byTaskType, byTeam, anomalies] = await Promise.all([
-    getSpendSummary(organization.id),
-    getSpendByAgent(organization.id),
-    getSpendByProvider(organization.id),
-    getSpendByModel(organization.id),
-    getSpendByTaskType(organization.id),
-    getSpendByTeam(organization.id),
-    listSecurityAlertsByType(organization.id, SECURITY_ALERT_TYPES.COST_SPIKE, 5),
-  ]);
+  const [summary, byAgent, byProvider, byModel, byTaskType, byTeam, anomalies, estimatedAdditionalCents, budgetStatuses, agents] =
+    await Promise.all([
+      getSpendSummary(organization.id),
+      getSpendByAgent(organization.id),
+      getSpendByProvider(organization.id),
+      getSpendByModel(organization.id),
+      getSpendByTaskType(organization.id),
+      getSpendByTeam(organization.id),
+      listSecurityAlertsByType(organization.id, SECURITY_ALERT_TYPES.COST_SPIKE, 5),
+      getEstimatedAdditionalSpendCentsThisMonth(organization.id),
+      getAllBudgetStatuses(organization.id),
+      listAllAgentsForOrg(organization.id),
+    ]);
 
   const highestCostAgent = byAgent[0] ?? null;
   const changeTone = summary.changePercent !== null && summary.changePercent > 0 ? "danger" : undefined;
+  const canManage = canManageBudgets(role);
 
   return (
     <div>
@@ -68,6 +78,33 @@ export default async function CostsPage() {
         <StatCard label="Spend today" value={formatCurrency(summary.todayCents)} icon={DollarSign} />
         <StatCard label="Highest-cost agent" value={highestCostAgent?.agentName ?? "—"} icon={TrendingUp} />
       </div>
+
+      <p className="mb-6 text-xs text-muted-foreground">
+        Figures above are <span className="font-medium text-foreground">confirmed</span> spend — self-reported cost
+        from connected agents.
+        {estimatedAdditionalCents > 0 && (
+          <>
+            {" "}
+            An additional <span className="font-medium text-foreground">{formatCurrency(estimatedAdditionalCents)}</span>{" "}
+            is <span className="font-medium text-foreground">estimated</span> this month from token counts on events
+            that didn&rsquo;t report a cost directly — kept separate, never merged into the confirmed total above.
+          </>
+        )}
+      </p>
+
+      <Card className="mb-4">
+        <CardHeader>
+          <CardTitle>Budgets</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <BudgetsPanel statuses={budgetStatuses} canManage={canManage} />
+          {canManage && (
+            <div className="border-t border-border p-5">
+              <BudgetForm agents={agents.map((a) => ({ id: a.id, name: a.name }))} />
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="mb-4">
         <CardHeader>

@@ -30,6 +30,7 @@ export const CAPABILITIES = [
   "manage_webhooks",
   "view_billing",
   "manage_billing",
+  "manage_budgets",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -53,7 +54,7 @@ const ROLE_CAPABILITIES: Record<MemberRole, Capability[]> = {
   // cannot check out, change plans, or open the Paddle portal — only
   // OWNER/ADMIN hold manage_billing, matching "Engineer cannot modify
   // billing" / "only appropriate roles can access billing."
-  FINANCE: ["view_costs", "view_audit", "view_billing"],
+  FINANCE: ["view_costs", "view_audit", "view_billing", "manage_budgets"],
   VIEWER: ["view_security", "view_costs", "view_audit"],
 };
 

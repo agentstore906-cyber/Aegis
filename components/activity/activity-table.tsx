@@ -15,6 +15,7 @@ export function ActivityTable({ events }: { events: EventRow[] }) {
           <Th>Agent</Th>
           <Th>Action</Th>
           <Th>Resource</Th>
+          <Th>Tool</Th>
           <Th>Status</Th>
           <Th>Risk</Th>
           <Th>Duration</Th>
@@ -43,6 +44,7 @@ export function ActivityTable({ events }: { events: EventRow[] }) {
             </Td>
             <Td className="text-foreground">{event.action.replaceAll("_", " ")}</Td>
             <Td className="max-w-40 truncate text-muted-foreground">{event.resource ?? "—"}</Td>
+            <Td className="text-muted-foreground">{event.toolName ?? "—"}</Td>
             <Td>
               <ActivityStatusBadge status={event.status} />
             </Td>

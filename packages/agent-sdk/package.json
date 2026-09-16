@@ -1,6 +1,6 @@
 {
   "name": "@aegis/agent-sdk",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Official TypeScript SDK for real agents to authenticate with Aegis, report activity, and ask for authorization decisions before acting.",
   "license": "MIT",
   "type": "module",

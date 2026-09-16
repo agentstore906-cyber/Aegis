@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Textarea, Label } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
-import { approveApprovalAction, rejectApprovalAction } from "@/lib/approvals/actions";
+import { approveApprovalAction, cancelApprovalAction, rejectApprovalAction } from "@/lib/approvals/actions";
 
 /**
  * Approve/Reject share one optional comment field, so this calls the two
@@ -17,7 +17,7 @@ export function ApprovalResolutionForm({ requestId }: { requestId: string }) {
   const [comment, setComment] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [pendingDecision, setPendingDecision] = useState<"APPROVED" | "REJECTED" | null>(null);
+  const [pendingDecision, setPendingDecision] = useState<"APPROVED" | "REJECTED" | "CANCELLED" | null>(null);
 
   function submit(decision: "APPROVED" | "REJECTED") {
     setError(null);
@@ -28,6 +28,15 @@ export function ApprovalResolutionForm({ requestId }: { requestId: string }) {
 
     startTransition(async () => {
       const result = await action(requestId, {}, formData);
+      if (result.error) setError(result.error);
+    });
+  }
+
+  function cancel() {
+    setError(null);
+    setPendingDecision("CANCELLED");
+    startTransition(async () => {
+      const result = await cancelApprovalAction(requestId);
       if (result.error) setError(result.error);
     });
   }
@@ -60,6 +69,9 @@ export function ApprovalResolutionForm({ requestId }: { requestId: string }) {
         </Button>
         <Button type="button" disabled={isPending} onClick={() => submit("APPROVED")}>
           {isPending && pendingDecision === "APPROVED" ? "Approving…" : "Approve"}
+        </Button>
+        <Button type="button" variant="ghost" disabled={isPending} onClick={cancel} className="ml-auto">
+          {isPending && pendingDecision === "CANCELLED" ? "Cancelling…" : "Cancel request"}
         </Button>
       </div>
     </div>

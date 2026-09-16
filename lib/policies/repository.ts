@@ -7,6 +7,7 @@ import type {
   PolicyDecision,
   PolicyStatus,
   RiskLevel,
+  SecurityAlertSeverity,
 } from "@prisma/client";
 
 import { prisma, type PrismaOrTx } from "@/lib/db";
@@ -92,7 +93,7 @@ export async function getAgentPermissionSummary(organizationId: string, agentId:
     _count: true,
   });
 
-  const summary = { ALLOW: 0, REQUIRE_APPROVAL: 0, BLOCK: 0 };
+  const summary: Record<PolicyDecision, number> = { ALLOW: 0, REQUIRE_APPROVAL: 0, BLOCK: 0, ALERT: 0 };
   for (const row of grouped) summary[row.decision] = row._count;
   return summary;
 }
@@ -113,6 +114,7 @@ export type PolicyInput = {
   status: PolicyStatus;
   priority: number;
   decision: PolicyDecision;
+  severity: SecurityAlertSeverity;
   agentId?: string | null;
   action: string;
   resource?: string | null;
@@ -315,7 +317,7 @@ export async function getPolicyDashboardStats(organizationId: string) {
     _count: true,
   });
 
-  const stats = { ALLOW: 0, REQUIRE_APPROVAL: 0, BLOCK: 0 };
+  const stats: Record<PolicyDecision, number> = { ALLOW: 0, REQUIRE_APPROVAL: 0, BLOCK: 0, ALERT: 0 };
   for (const row of grouped) stats[row.decision] = row._count;
 
   const recentBlocked = await prisma.policyEvaluation.findMany({

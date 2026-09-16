@@ -7,6 +7,7 @@ import type {
   ApprovalStatusResult,
   AuthorizationResult,
   AuthorizeInput,
+  ConvenienceEventInput,
   RegisterAgentInput,
   RegisterAgentResult,
   TrackEventInput,
@@ -71,6 +72,57 @@ export class Aegis {
   /** Reports an action your agent already took. Does not ask for authorization — see `authorize()` for that. */
   async track(input: TrackEventInput): Promise<TrackEventResult> {
     return this.http.request<TrackEventResult>({ method: "POST", path: "/api/v1/events", body: input });
+  }
+
+  // Convenience wrappers around track() (0.4.0) — each fills in the
+  // eventType/action pair for a common event so you never have to look up
+  // Aegis's internal taxonomy. All optional fields from track() still work
+  // (resource, metadata, cost, ...); `action` can be overridden for a more
+  // specific machine-readable code.
+
+  /** Your agent process started a run. */
+  async trackAgentStarted(input: ConvenienceEventInput): Promise<TrackEventResult> {
+    return this.track({ ...input, eventType: "SYSTEM", action: input.action ?? "agent.started" });
+  }
+
+  /** Your agent process finished a run. */
+  async trackAgentFinished(input: ConvenienceEventInput): Promise<TrackEventResult> {
+    return this.track({ ...input, eventType: "SYSTEM", action: input.action ?? "agent.finished" });
+  }
+
+  /** Your agent invoked a tool/integration — `tool` is required so this always shows up under the right integration. */
+  async trackToolCall(input: ConvenienceEventInput & { tool: string }): Promise<TrackEventResult> {
+    return this.track({ ...input, eventType: "TOOL_CALL", action: input.action ?? "tool.called" });
+  }
+
+  /** Your agent called an external API. */
+  async trackApiCall(input: ConvenienceEventInput): Promise<TrackEventResult> {
+    return this.track({ ...input, eventType: "ACTION", action: input.action ?? "api.called" });
+  }
+
+  /** Your agent read data (a record, a file, a query result). */
+  async trackDataRead(input: ConvenienceEventInput): Promise<TrackEventResult> {
+    return this.track({ ...input, eventType: "DATA_ACCESS", action: input.action ?? "data.read" });
+  }
+
+  /** Your agent wrote/modified data. */
+  async trackDataWrite(input: ConvenienceEventInput): Promise<TrackEventResult> {
+    return this.track({ ...input, eventType: "DATA_ACCESS", action: input.action ?? "data.written" });
+  }
+
+  /** Your agent sent a message (email, chat, notification, ...). */
+  async trackMessageSent(input: ConvenienceEventInput): Promise<TrackEventResult> {
+    return this.track({ ...input, eventType: "COMMUNICATION", action: input.action ?? "message.sent" });
+  }
+
+  /** Your agent hit an error. Defaults `status` to "FAILURE" — pass your own to override. */
+  async trackError(input: ConvenienceEventInput): Promise<TrackEventResult> {
+    return this.track({ ...input, eventType: "SYSTEM", action: input.action ?? "error", status: input.status ?? "FAILURE" });
+  }
+
+  /** Your agent's own permissions/scopes changed. */
+  async trackPermissionChanged(input: ConvenienceEventInput): Promise<TrackEventResult> {
+    return this.track({ ...input, eventType: "SYSTEM", action: input.action ?? "permission.changed" });
   }
 
   /** Asks Aegis whether your agent may perform an action. Auto-generates a traceId if you don't supply one. */

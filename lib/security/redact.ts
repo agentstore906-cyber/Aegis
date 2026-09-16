@@ -31,3 +31,34 @@ function redactValue(value: unknown): unknown {
 export function redactSecrets<T>(value: T): T {
   return redactValue(value) as T;
 }
+
+function collectSecretShapedKeyPaths(value: unknown, path: string, out: string[]): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => collectSecretShapedKeyPaths(item, `${path}[${i}]`, out));
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      const keyPath = path ? `${path}.${key}` : key;
+      if (SECRET_KEY_PATTERN.test(key)) {
+        out.push(keyPath);
+      } else {
+        collectSecretShapedKeyPaths(v, keyPath, out);
+      }
+    }
+  }
+}
+
+/**
+ * Reports *which* key paths look secret-shaped, without ever returning the
+ * value itself — used to raise a CREDENTIAL_EXPOSURE_DETECTED finding
+ * (lib/security/detectors.ts#detectCredentialExposureIndicator) when an
+ * agent's self-reported event metadata contains a field that shouldn't
+ * have been sent to Aegis in the first place. The value is still masked by
+ * redactSecrets() before anything is persisted — this only names the field.
+ */
+export function findSecretShapedKeyPaths(value: unknown): string[] {
+  const out: string[] = [];
+  collectSecretShapedKeyPaths(value, "", out);
+  return out;
+}

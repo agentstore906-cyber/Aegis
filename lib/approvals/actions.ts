@@ -71,3 +71,27 @@ export async function rejectApprovalAction(
 ): Promise<ApprovalResolutionState> {
   return resolve(requestId, "REJECTED", formData);
 }
+
+/** Withdraws a still-pending request — e.g. the underlying condition no longer applies. */
+export async function cancelApprovalAction(requestId: string): Promise<ApprovalResolutionState> {
+  const { organization, user, role } = await requireActiveOrganization();
+  if (!canResolveApproval(role)) {
+    return { error: "You don't have permission to cancel approval requests." };
+  }
+
+  try {
+    const updated = await service.cancelApproval(organization.id, requestId, user.id);
+
+    revalidatePath("/approvals");
+    revalidatePath(`/approvals/${requestId}`);
+    revalidatePath("/overview");
+    revalidatePath(`/agents/${updated.agent.slug}`);
+
+    return { success: true };
+  } catch (error) {
+    if (error instanceof ApprovalNotFoundError || error instanceof ApprovalAlreadyResolvedError) {
+      return { error: error.message };
+    }
+    throw error;
+  }
+}

@@ -23,7 +23,10 @@ export const API_EVENT_TYPES = [
   "SYSTEM",
 ] as const;
 
-export const API_EVENT_STATUSES = ["SUCCESS", "FAILURE"] as const;
+// BLOCKED/WARNING let an agent self-report that its own guardrail stopped
+// an action, or that an action succeeded but looked suspicious — distinct
+// from SUCCESS/FAILURE, which describe whether the action itself errored.
+export const API_EVENT_STATUSES = ["SUCCESS", "FAILURE", "BLOCKED", "WARNING"] as const;
 
 const agentSlugSchema = z.string().trim().min(1, "`agent` is required").max(80);
 const traceIdSchema = z.string().trim().min(1).max(120).optional();
@@ -68,6 +71,8 @@ export const eventIngestSchema = z.object({
   eventType: z.enum(API_EVENT_TYPES),
   action: actionSchema,
   resource: z.string().trim().max(120).optional(),
+  description: z.string().trim().max(500).optional(),
+  tool: z.string().trim().max(60).optional(),
   status: z.enum(API_EVENT_STATUSES).default("SUCCESS"),
   traceId: traceIdSchema,
   durationMs: z.number().int().min(0).max(24 * 60 * 60 * 1000).optional(),

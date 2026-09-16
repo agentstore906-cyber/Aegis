@@ -18,7 +18,17 @@ export type TrackEventInput = {
     eventType: EventType;
     action: string;
     resource?: string;
-    status?: "SUCCESS" | "FAILURE";
+    /** Optional human-readable summary shown in the Aegis activity feed instead of the raw `action` code, e.g. "Read customer record for Acme Corp". */
+    description?: string;
+    /** Which tool/integration performed this action, e.g. "CRM", "Zendesk" — feeds tool-based anomaly detection and the Activity page's Tool filter. */
+    tool?: string;
+    /**
+     * SUCCESS/FAILURE describe whether the action itself errored. BLOCKED
+     * (your own guardrail stopped it) and WARNING (it succeeded but your
+     * agent flagged it as suspicious) let you self-report those outcomes
+     * too — added in 0.3.0, existing track() calls keep working unmodified.
+     */
+    status?: "SUCCESS" | "FAILURE" | "BLOCKED" | "WARNING";
     traceId?: string;
     durationMs?: number;
     model?: string;
@@ -34,6 +44,16 @@ export type TrackEventInput = {
 export type TrackEventResult = {
     id: string;
     traceId: string | null;
+};
+/**
+ * Shared shape for the trackX() convenience methods (0.4.0) — every field
+ * `track()` accepts except `eventType`/`action`, which each method fills in
+ * for you so callers never have to know Aegis's internal event taxonomy.
+ * `action` stays overridable for a more specific machine-readable code
+ * (e.g. "crm.contact.read" instead of the generic "data.read").
+ */
+export type ConvenienceEventInput = Omit<TrackEventInput, "eventType" | "action"> & {
+    action?: string;
 };
 export type AuthorizeInput = {
     agent: string;

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Prisma, SecurityAlertSeverity, SecurityAlertStatus } from "@prisma/client";
+import type { AgentStatus, Prisma, RiskLevel, SecurityAlertSeverity, SecurityAlertStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { redactSecrets } from "@/lib/security/redact";
@@ -10,6 +10,8 @@ import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 import { SECURITY_ALERT_TYPES } from "@/lib/security/types";
 import type { Finding } from "@/lib/security/types";
 import { SecurityAlertAlreadyResolvedError, SecurityAlertNotFoundError } from "@/lib/security/types";
+import { DELETE_KEYWORDS } from "@/lib/security/risk-scoring";
+import { computeAgentRiskScore, type RiskScore } from "@/lib/security/risk-score";
 
 const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -42,7 +44,14 @@ export async function upsertAlertFinding(
   if (existing) {
     const updated = await prisma.securityAlert.update({
       where: { id: existing.id },
-      data: { count: { increment: 1 }, lastSeenAt: new Date(), evidence: redactedEvidence, severity: finding.severity },
+      data: {
+        count: { increment: 1 },
+        lastSeenAt: new Date(),
+        evidence: redactedEvidence,
+        severity: finding.severity,
+        confidence: finding.confidence ?? undefined,
+        recommendedAction: finding.recommendedAction ?? undefined,
+      },
       include: ALERT_INCLUDE,
     });
     return { created: false, alert: updated };
@@ -58,6 +67,8 @@ export async function upsertAlertFinding(
       description: finding.description,
       evidence: redactedEvidence,
       traceId: finding.traceId ?? undefined,
+      confidence: finding.confidence ?? undefined,
+      recommendedAction: finding.recommendedAction ?? undefined,
     },
     include: ALERT_INCLUDE,
   });
@@ -146,8 +157,24 @@ export async function listSecurityAlertsByType(organizationId: string, type: str
   });
 }
 
+/** Alert types that mean "this agent's behavior pattern itself looks off," feeding the Agent Health card's Activity: Normal/Unusual line — distinct from a single risky action or a cost anomaly. */
+const ACTIVITY_ANOMALY_TYPES = [
+  SECURITY_ALERT_TYPES.ACTIVITY_VOLUME_SPIKE,
+  SECURITY_ALERT_TYPES.HIGH_RISK_BURST,
+  SECURITY_ALERT_TYPES.BLOCK_SPIKE,
+  SECURITY_ALERT_TYPES.DATA_ACCESS_SPIKE,
+  SECURITY_ALERT_TYPES.DELETE_ACTIVITY_SPIKE,
+  SECURITY_ALERT_TYPES.COMMUNICATION_SPIKE,
+] as const;
+
+/** Alert types treated as "this agent recently gained a new capability" — a data point for the risk score, not itself a red flag. */
+const NEW_CAPABILITY_ALERT_TYPES = [
+  SECURITY_ALERT_TYPES.NEW_SENSITIVE_ACTION,
+  SECURITY_ALERT_TYPES.NEW_TOOL_USAGE,
+] as const;
+
 export async function getSecurityStatsForAgent(organizationId: string, agentId: string) {
-  const [open, highOrCritical, costAnomaly] = await Promise.all([
+  const [open, highOrCritical, costAnomaly, activityAnomaly] = await Promise.all([
     prisma.securityAlert.count({ where: { organizationId, agentId, status: { in: ["OPEN", "ACKNOWLEDGED"] } } }),
     prisma.securityAlert.count({
       where: { organizationId, agentId, status: { in: ["OPEN", "ACKNOWLEDGED"] }, severity: { in: ["HIGH", "CRITICAL"] } },
@@ -156,9 +183,145 @@ export async function getSecurityStatsForAgent(organizationId: string, agentId: 
       where: { organizationId, agentId, type: SECURITY_ALERT_TYPES.COST_SPIKE, status: { in: ["OPEN", "ACKNOWLEDGED"] } },
       select: { id: true },
     }),
+    prisma.securityAlert.findFirst({
+      where: { organizationId, agentId, type: { in: [...ACTIVITY_ANOMALY_TYPES] }, status: { in: ["OPEN", "ACKNOWLEDGED"] } },
+      select: { id: true },
+    }),
   ]);
 
-  return { open, highOrCritical, hasCostAnomaly: Boolean(costAnomaly) };
+  return { open, highOrCritical, hasCostAnomaly: Boolean(costAnomaly), hasActivityAnomaly: Boolean(activityAnomaly) };
+}
+
+const RISK_SCORE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Assembles the real, already-scoped signals for one agent and hands them
+ * to the pure scorer (lib/security/risk-score.ts). This is the only place
+ * that queries the database for a risk score — the scoring logic itself
+ * stays testable without one.
+ */
+export async function getAgentRiskScore(
+  organizationId: string,
+  agent: { id: string; riskLevel: RiskLevel }
+): Promise<RiskScore> {
+  const since = new Date(Date.now() - RISK_SCORE_WINDOW_MS);
+  const deleteKeywordFilter = {
+    OR: DELETE_KEYWORDS.flatMap((keyword) => [
+      { action: { contains: keyword, mode: "insensitive" as const } },
+      { resource: { contains: keyword, mode: "insensitive" as const } },
+    ]),
+  };
+
+  const [
+    openAlertsBySeverity,
+    hasNewCapabilityAlert,
+    blockedActions7d,
+    policyViolations7d,
+    failedActions7d,
+    destructiveActions7d,
+  ] = await Promise.all([
+    prisma.securityAlert.groupBy({
+      by: ["severity"],
+      where: { organizationId, agentId: agent.id, status: { in: ["OPEN", "ACKNOWLEDGED"] } },
+      _count: true,
+    }),
+    prisma.securityAlert.findFirst({
+      where: {
+        organizationId,
+        agentId: agent.id,
+        status: { in: ["OPEN", "ACKNOWLEDGED"] },
+        type: { in: [...NEW_CAPABILITY_ALERT_TYPES] },
+      },
+      select: { id: true },
+    }),
+    prisma.activityEvent.count({
+      where: { organizationId, agentId: agent.id, status: "BLOCKED", timestamp: { gte: since } },
+    }),
+    prisma.policyEvaluation.count({
+      where: { organizationId, agentId: agent.id, decision: "BLOCK", createdAt: { gte: since } },
+    }),
+    prisma.activityEvent.count({
+      where: { organizationId, agentId: agent.id, status: "FAILED", timestamp: { gte: since } },
+    }),
+    prisma.activityEvent.count({
+      where: { organizationId, agentId: agent.id, timestamp: { gte: since }, ...deleteKeywordFilter },
+    }),
+  ]);
+
+  const bySeverity = new Map(openAlertsBySeverity.map((row) => [row.severity, row._count]));
+
+  return computeAgentRiskScore({
+    agentRiskLevel: agent.riskLevel,
+    openCriticalAlerts: bySeverity.get("CRITICAL") ?? 0,
+    openHighAlerts: bySeverity.get("HIGH") ?? 0,
+    openMediumAlerts: bySeverity.get("MEDIUM") ?? 0,
+    hasNewCapabilityAlert: hasNewCapabilityAlert !== null,
+    blockedActions7d,
+    policyViolations7d,
+    failedActions7d,
+    destructiveActions7d,
+  });
+}
+
+/** Every alert type that represents a detected deviation from an agent's own baseline — the org-wide "Recent anomalies" feed on /overview, as opposed to a single risky action or a manually-configured policy block. */
+const ANOMALY_ALERT_TYPES = [...ACTIVITY_ANOMALY_TYPES, SECURITY_ALERT_TYPES.COST_SPIKE, SECURITY_ALERT_TYPES.FAILURE_LOOP] as const;
+
+/** Recent anomaly alerts across the whole organization, most severe and most recent first — feeds the dashboard's "Recent anomalies" card. */
+export async function listRecentAnomalies(organizationId: string, limit = 5) {
+  return prisma.securityAlert.findMany({
+    where: { organizationId, status: { in: ["OPEN", "ACKNOWLEDGED"] }, type: { in: [...ANOMALY_ALERT_TYPES] } },
+    include: { agent: { select: { id: true, name: true, slug: true } } },
+    orderBy: [{ severity: "desc" }, { lastSeenAt: "desc" }],
+    take: limit,
+  });
+}
+
+export type HighRiskAgentSummary = {
+  agent: { id: string; name: string; slug: string; riskLevel: RiskLevel; status: AgentStatus };
+  criticalAlertCount: number;
+  highOrCriticalAlertCount: number;
+};
+
+/**
+ * Ranks agents by open high/critical security alert volume — a cheap,
+ * bulk proxy for "who needs attention right now" on the org dashboard.
+ * Deliberately not the full per-agent RiskScore (getAgentRiskScore):
+ * computing that for every agent on every dashboard load would mean N
+ * extra queries per agent. Two bounded groupBy queries plus one `id IN
+ * (...)` lookup, regardless of how many agents the org has.
+ */
+export async function getHighRiskAgentsSummary(organizationId: string, limit = 5): Promise<HighRiskAgentSummary[]> {
+  const [highOrCriticalGrouped, criticalGrouped] = await Promise.all([
+    prisma.securityAlert.groupBy({
+      by: ["agentId"],
+      where: { organizationId, status: { in: ["OPEN", "ACKNOWLEDGED"] }, severity: { in: ["HIGH", "CRITICAL"] } },
+      _count: true,
+    }),
+    prisma.securityAlert.groupBy({
+      by: ["agentId"],
+      where: { organizationId, status: { in: ["OPEN", "ACKNOWLEDGED"] }, severity: "CRITICAL" },
+      _count: true,
+    }),
+  ]);
+
+  if (highOrCriticalGrouped.length === 0) return [];
+
+  const criticalByAgent = new Map(criticalGrouped.map((row) => [row.agentId, row._count]));
+  const agents = await prisma.agent.findMany({
+    where: { organizationId, id: { in: highOrCriticalGrouped.map((row) => row.agentId) } },
+    select: { id: true, name: true, slug: true, riskLevel: true, status: true },
+  });
+  const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+
+  return highOrCriticalGrouped
+    .map((row) => ({
+      agent: agentById.get(row.agentId),
+      criticalAlertCount: criticalByAgent.get(row.agentId) ?? 0,
+      highOrCriticalAlertCount: row._count,
+    }))
+    .filter((row): row is HighRiskAgentSummary => row.agent !== undefined)
+    .sort((a, b) => b.criticalAlertCount - a.criticalAlertCount || b.highOrCriticalAlertCount - a.highOrCriticalAlertCount)
+    .slice(0, limit);
 }
 
 export async function getSecurityStats(organizationId: string) {

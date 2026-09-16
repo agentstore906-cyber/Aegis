@@ -49,7 +49,7 @@ export default function OpengraphImage() {
             maxWidth: 900,
           }}
         >
-          The Control Plane for AI Agents
+          The Control Center for AI Agents
         </div>
       </div>
     ),

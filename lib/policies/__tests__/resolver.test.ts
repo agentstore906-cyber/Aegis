@@ -90,4 +90,46 @@ describe("resolveDecision", () => {
     const result = resolveDecision(permission, [policy], makeInput());
     expect(result.reason).toContain("Named policy");
   });
+
+  describe("ALERT", () => {
+    it("returns ALERT when only an ALERT policy matches — the action is not blocked", () => {
+      const alertPolicy = makePolicy({ decision: "ALERT", name: "Flag large refunds", severity: "HIGH" });
+      const result = resolveDecision(undefined, [alertPolicy], makeInput());
+
+      expect(result.decision).toBe("ALERT");
+      expect(result.reason).toContain("Flag large refunds");
+      expect(result.reason).toMatch(/allowed/i);
+    });
+
+    it("ALERT outranks a plain ALLOW permission", () => {
+      const permission = makePermission({ decision: "ALLOW" });
+      const alertPolicy = makePolicy({ decision: "ALERT", name: "Flag it" });
+
+      const result = resolveDecision(permission, [alertPolicy], makeInput());
+      expect(result.decision).toBe("ALERT");
+    });
+
+    it("BLOCK still overrides ALERT", () => {
+      const alertPolicy = makePolicy({ decision: "ALERT", name: "Flag it", priority: 900 });
+      const blockPolicy = makePolicy({ decision: "BLOCK", name: "Block it", priority: 10 });
+
+      const result = resolveDecision(undefined, [alertPolicy, blockPolicy], makeInput());
+      expect(result.decision).toBe("BLOCK");
+    });
+
+    it("REQUIRE_APPROVAL still overrides ALERT", () => {
+      const alertPolicy = makePolicy({ decision: "ALERT", name: "Flag it" });
+      const approvalPolicy = makePolicy({ decision: "REQUIRE_APPROVAL", name: "Needs approval" });
+
+      const result = resolveDecision(undefined, [alertPolicy, approvalPolicy], makeInput());
+      expect(result.decision).toBe("REQUIRE_APPROVAL");
+    });
+
+    it("exposes the winning policy's severity for the caller to size the resulting alert", () => {
+      const alertPolicy = makePolicy({ decision: "ALERT", name: "Flag it", severity: "CRITICAL" });
+      const result = resolveDecision(undefined, [alertPolicy], makeInput());
+
+      expect(result.winningPolicySnapshot?.severity).toBe("CRITICAL");
+    });
+  });
 });

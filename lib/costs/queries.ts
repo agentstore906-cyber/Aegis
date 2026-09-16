@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/db";
+import { resolveEventCost } from "@/lib/costs/pricing";
 
 /**
  * Cost intelligence is query-time aggregation over ActivityEvent's
@@ -22,6 +23,24 @@ function startOfUtcMonth(date: Date, monthOffset = 0): Date {
 
 export async function getTodaySpendCentsForAgent(organizationId: string, agentId: string): Promise<number> {
   const since = startOfUtcDay(new Date());
+  const result = await prisma.activityEvent.aggregate({
+    where: { organizationId, agentId, timestamp: { gte: since }, costCents: { not: null } },
+    _sum: { costCents: true },
+  });
+  return result._sum.costCents ?? 0;
+}
+
+export async function getOrgTodaySpendCents(organizationId: string): Promise<number> {
+  const since = startOfUtcDay(new Date());
+  const result = await prisma.activityEvent.aggregate({
+    where: { organizationId, timestamp: { gte: since }, costCents: { not: null } },
+    _sum: { costCents: true },
+  });
+  return result._sum.costCents ?? 0;
+}
+
+export async function getMonthSpendCentsForAgent(organizationId: string, agentId: string): Promise<number> {
+  const since = startOfUtcMonth(new Date());
   const result = await prisma.activityEvent.aggregate({
     where: { organizationId, agentId, timestamp: { gte: since }, costCents: { not: null } },
     _sum: { costCents: true },
@@ -84,6 +103,43 @@ export async function getSpendSummary(organizationId: string): Promise<SpendSumm
     changePercent: previousMonthCents > 0 ? ((thisMonthCents - previousMonthCents) / previousMonthCents) * 100 : null,
     todayCents: today._sum.costCents ?? 0,
   };
+}
+
+/**
+ * Additional spend this month that Aegis can only *estimate* (no
+ * self-reported `costCents`, but token counts + a recognized model name
+ * were reported) — always a distinct figure from the confirmed SQL sum
+ * above, never merged into it silently. Grouped by model (not loaded
+ * per-row) since cost is linear in tokens: summing tokens first and
+ * pricing once per model group is mathematically identical to pricing
+ * every row and summing, at a fraction of the rows scanned.
+ */
+export async function getEstimatedAdditionalSpendCentsThisMonth(organizationId: string): Promise<number> {
+  const startThisMonth = startOfUtcMonth(new Date());
+  const grouped = await prisma.activityEvent.groupBy({
+    by: ["modelName"],
+    where: {
+      organizationId,
+      timestamp: { gte: startThisMonth },
+      costCents: null,
+      modelName: { not: null },
+      OR: [{ inputTokens: { not: null } }, { outputTokens: { not: null } }],
+    },
+    _sum: { inputTokens: true, outputTokens: true },
+  });
+
+  let totalCents = 0;
+  for (const g of grouped) {
+    if (!g.modelName) continue;
+    const { costCents } = resolveEventCost({
+      costCents: null,
+      modelName: g.modelName,
+      inputTokens: g._sum.inputTokens,
+      outputTokens: g._sum.outputTokens,
+    });
+    if (costCents !== null) totalCents += costCents;
+  }
+  return totalCents;
 }
 
 export type AgentSpend = {

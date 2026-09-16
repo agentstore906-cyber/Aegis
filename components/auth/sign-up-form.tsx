@@ -27,7 +27,7 @@ export function SignUpForm() {
       </div>
 
       <div>
-        <Label htmlFor="email">Work email</Label>
+        <Label htmlFor="email">Email</Label>
         <Input id="email" name="email" type="email" autoComplete="email" required />
       </div>
 

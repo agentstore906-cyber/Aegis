@@ -42,7 +42,7 @@ export default async function ApiKeysPage() {
           {atLimit ? (
             <Alert tone="warning">
               You&rsquo;ve used all {plan.apiKeyLimit} active API keys on the {plan.name} plan.{" "}
-              <a href="/settings/billing" className="underline">
+              <a href="/upgrade" className="underline">
                 Upgrade
               </a>{" "}
               for more.

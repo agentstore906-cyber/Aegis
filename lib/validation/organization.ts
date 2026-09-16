@@ -2,6 +2,11 @@ import { z } from "zod";
 
 export const createOrganizationSchema = z.object({
   name: z.string().trim().min(2, "Organization name is too short").max(80),
+  // Only TEAM/ENTERPRISE ever go through this form — PERSONAL workspaces are
+  // provisioned by createPersonalWorkspaceAction instead (see
+  // lib/organizations/actions.ts). Defaults to TEAM so any other caller that
+  // doesn't pass it keeps today's behavior.
+  accountType: z.enum(["TEAM", "ENTERPRISE"]).default("TEAM"),
 });
 
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;

@@ -62,6 +62,15 @@ describe("hasCapability", () => {
     }
   });
 
+  it("FINANCE can manage budgets, but ENGINEER and SECURITY cannot", () => {
+    expect(hasCapability("FINANCE", "manage_budgets")).toBe(true);
+    expect(hasCapability("OWNER", "manage_budgets")).toBe(true);
+    expect(hasCapability("ADMIN", "manage_budgets")).toBe(true);
+    expect(hasCapability("ENGINEER", "manage_budgets")).toBe(false);
+    expect(hasCapability("SECURITY", "manage_budgets")).toBe(false);
+    expect(hasCapability("VIEWER", "manage_budgets")).toBe(false);
+  });
+
   it("FINANCE can view billing but not manage it", () => {
     expect(hasCapability("FINANCE", "view_billing")).toBe(true);
     expect(hasCapability("FINANCE", "manage_billing")).toBe(false);

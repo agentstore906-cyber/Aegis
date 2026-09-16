@@ -3,7 +3,7 @@ import { readJsonBody } from "@/lib/api/request";
 import { withIdempotency } from "@/lib/api/idempotency";
 import { ApiError } from "@/lib/api/errors";
 import { evaluateRequestSchema } from "@/lib/validation/api";
-import { getAgentBySlugRaw } from "@/lib/agents/queries";
+import { getAgentBySlugForIngestion } from "@/lib/agents/queries";
 import { evaluateAgentAction } from "@/lib/policies/evaluate";
 
 const MAX_BODY_BYTES = 32 * 1024;
@@ -22,9 +22,16 @@ export const POST = withApiAuth("evaluate.create", "policy:evaluate", async (req
     throw new ApiError("INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid request body.", 400);
   }
 
-  const agent = await getAgentBySlugRaw(ctx.organization.id, parsed.data.agent);
+  const agent = await getAgentBySlugForIngestion(ctx.organization.id, parsed.data.agent);
   if (!agent) {
     throw new ApiError("AGENT_NOT_FOUND", `Agent \`${parsed.data.agent}\` was not found in this organization.`, 404);
+  }
+  if (agent.connection?.status === "DISCONNECTED") {
+    throw new ApiError(
+      "AGENT_CONNECTION_DISCONNECTED",
+      `Agent \`${parsed.data.agent}\` has been disconnected. Reconnect it in Aegis before requesting authorization.`,
+      409
+    );
   }
   ctx.setAgentId(agent.id);
 

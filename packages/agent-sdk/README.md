@@ -40,6 +40,25 @@ await aegis.track({
 });
 ```
 
+## Convenience event methods
+
+Thin wrappers around `track()` for common events, so you never have to look
+up Aegis's internal `eventType`/`action` taxonomy — every other `track()`
+field (`resource`, `metadata`, `cost`, ...) still works, and `action` stays
+overridable for a more specific code:
+
+```ts
+await aegis.trackAgentStarted({ agent: "finance-agent" });
+await aegis.trackToolCall({ agent: "finance-agent", tool: "CRM", resource: "contact:1" });
+await aegis.trackApiCall({ agent: "finance-agent", resource: "stripe.charges.create" });
+await aegis.trackDataRead({ agent: "finance-agent", resource: "invoice:inv_123" });
+await aegis.trackDataWrite({ agent: "finance-agent", resource: "invoice:inv_123" });
+await aegis.trackMessageSent({ agent: "finance-agent", resource: "email" });
+await aegis.trackError({ agent: "finance-agent", description: "CRM lookup timed out" });
+await aegis.trackPermissionChanged({ agent: "finance-agent", description: "Granted refund.issue" });
+await aegis.trackAgentFinished({ agent: "finance-agent" });
+```
+
 ## Ask for authorization
 
 ```ts

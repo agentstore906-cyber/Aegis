@@ -185,3 +185,56 @@ export async function resolveApproval(
       return outcome.request;
   }
 }
+
+type CancelOutcome =
+  | { kind: "not_found" }
+  | { kind: "already_resolved"; status: ApprovalStatus }
+  | { kind: "cancelled"; request: ResolvedApprovalRequest };
+
+/**
+ * Withdraws a still-PENDING request — e.g. the underlying condition no
+ * longer applies. Not a decision (see the note above ApprovalDecisionType
+ * in schema.prisma: CANCELLED is a status transition, never an
+ * ApprovalDecision row), so this only ever writes the status + an audit
+ * event, mirroring the EXPIRED branch in resolveApproval rather than the
+ * APPROVED/REJECTED one. Same race-safe conditional updateMany pattern.
+ */
+export async function cancelApproval(organizationId: string, requestId: string, cancelledByUserId: string) {
+  const outcome = await prisma.$transaction(async (tx): Promise<CancelOutcome> => {
+    const updated = await tx.approvalRequest.updateMany({
+      where: { id: requestId, organizationId, status: "PENDING" },
+      data: { status: "CANCELLED", resolvedAt: new Date() },
+    });
+
+    if (updated.count === 0) {
+      const existing = await tx.approvalRequest.findFirst({ where: { id: requestId, organizationId } });
+      if (!existing) return { kind: "not_found" };
+      return { kind: "already_resolved", status: existing.status };
+    }
+
+    const request = await loadResolvedRequest(tx, requestId);
+
+    await recordAuditEvent(tx, {
+      organizationId,
+      actorType: "USER",
+      actorUserId: cancelledByUserId,
+      agentId: request.agentId,
+      eventType: AUDIT_EVENT_TYPES.APPROVAL_CANCELLED,
+      entityType: "ApprovalRequest",
+      entityId: request.id,
+      action: request.action,
+      traceId: request.traceId,
+    });
+
+    return { kind: "cancelled", request };
+  });
+
+  switch (outcome.kind) {
+    case "not_found":
+      throw new ApprovalNotFoundError();
+    case "already_resolved":
+      throw new ApprovalAlreadyResolvedError(outcome.status);
+    case "cancelled":
+      return outcome.request;
+  }
+}

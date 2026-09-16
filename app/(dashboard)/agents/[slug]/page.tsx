@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Pencil, Wrench, ShieldCheck, DollarSign, Plus, Activity as ActivityIcon, CheckCircle2 } from "lucide-react";
+import { Pencil, Wrench, ShieldCheck, ShieldAlert, DollarSign, Plus, Activity as ActivityIcon, CheckCircle2 } from "lucide-react";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { prisma } from "@/lib/db";
@@ -17,14 +17,23 @@ import {
   listPoliciesForAgent,
 } from "@/lib/policies/repository";
 import { listApprovalsForAgent } from "@/lib/approvals/repository";
-import { getSecurityStatsForAgent } from "@/lib/security/repository";
+import { getSecurityStatsForAgent, getAgentRiskScore, listSecurityAlertsForAgent } from "@/lib/security/repository";
+import { getAgentBehavioralBaseline } from "@/lib/security/baseline";
 import { getCostPerSuccessfulTaskForAgent } from "@/lib/costs/queries";
+import type { ConnectorCapabilities } from "@/lib/connectors/types";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { AgentTabs } from "@/components/agents/agent-tabs";
 import { AgentStatusToggle } from "@/components/agents/agent-status-toggle";
-import { AgentStatusBadge, RiskBadge, ApprovalStatusBadge } from "@/components/dashboard/status-badges";
+import {
+  AgentStatusBadge,
+  RiskBadge,
+  ApprovalStatusBadge,
+  SecurityAlertSeverityBadge,
+  SecurityAlertStatusBadge,
+} from "@/components/dashboard/status-badges";
 import { ActivityRow } from "@/components/activity/activity-row";
+import { LiveActivityRefresh } from "@/components/activity/live-activity-refresh";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
@@ -32,6 +41,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PermissionsTable } from "@/components/policies/permissions-table";
 import { AgentPoliciesList } from "@/components/policies/agent-policies-list";
 import { AgentConnectPanel } from "@/components/agents/agent-connect-panel";
+import { AgentConnectionPanel } from "@/components/agents/agent-connection-panel";
+import { AgentRiskScore } from "@/components/security/agent-risk-score";
+import { BehavioralBaselineCard } from "@/components/security/behavioral-baseline";
 export const metadata: Metadata = { title: "Agent" };
 
 export default async function AgentDetailPage({
@@ -62,16 +74,35 @@ export default async function AgentDetailPage({
   const permissions = tab === "permissions" ? await listAgentPermissions(organization.id, agent.id) : [];
   const agentPolicies = tab === "policies" ? await listPoliciesForAgent(organization.id, agent.id) : [];
   const agentApprovals = tab === "approvals" ? await listApprovalsForAgent(organization.id, agent.id, 20) : [];
+  const agentSecurityAlerts = tab === "security" ? await listSecurityAlertsForAgent(organization.id, agent.id, 50) : [];
 
-  const [riskSecurityStats, riskActivityCounts] =
+  const [riskSecurityStats, riskActivityCounts, agentRisk, behavioralBaseline] =
     tab === "overview"
       ? await Promise.all([
           getSecurityStatsForAgent(organization.id, agent.id),
           getAgentActivityStatusCounts(organization.id, agent.id),
+          getAgentRiskScore(organization.id, agent),
+          getAgentBehavioralBaseline(organization.id, agent.id),
         ])
-      : [null, null];
+      : [null, null, null, null];
 
   const costPerSuccessfulTaskCents = tab === "costs" ? await getCostPerSuccessfulTaskForAgent(organization.id, agent.id) : null;
+
+  const connectionView =
+    tab === "overview" && agent.connection
+      ? {
+          connectorType: agent.connection.connectorType,
+          status: agent.connection.status,
+          externalAccountLabel: agent.connection.externalAccountLabel,
+          capabilities: agent.connection.capabilities as unknown as ConnectorCapabilities,
+          connectedAtLabel: formatDateTime(agent.connection.connectedAt),
+          lastVerifiedAtLabel: agent.connection.lastVerifiedAt ? formatRelativeTime(agent.connection.lastVerifiedAt) : null,
+          lastHealthCheckAtLabel: agent.connection.lastHealthCheckAt
+            ? formatRelativeTime(agent.connection.lastHealthCheckAt)
+            : null,
+          lastHealthError: agent.connection.lastHealthError,
+        }
+      : null;
 
   // The agent exists but has never reported activity — show a guided
   // "send your first event" panel instead of a bare empty state.
@@ -85,6 +116,7 @@ export default async function AgentDetailPage({
 
   return (
     <div>
+      {(tab === "overview" || tab === "activity") && <LiveActivityRefresh />}
       <PageHeader
         title={agent.name}
         description={agent.description ?? undefined}
@@ -188,6 +220,20 @@ export default async function AgentDetailPage({
           </Card>
 
           <div className="space-y-4">
+            {connectionView && (
+              <AgentConnectionPanel
+                agentSlug={agent.slug}
+                connectorType={connectionView.connectorType}
+                status={connectionView.status}
+                externalAccountLabel={connectionView.externalAccountLabel}
+                capabilities={connectionView.capabilities}
+                connectedAtLabel={connectionView.connectedAtLabel}
+                lastVerifiedAtLabel={connectionView.lastVerifiedAtLabel}
+                lastHealthCheckAtLabel={connectionView.lastHealthCheckAtLabel}
+                lastHealthError={connectionView.lastHealthError}
+                canManage={canManageThisAgent}
+              />
+            )}
             <Card>
               <CardHeader>
                 <CardTitle>Recent activity</CardTitle>
@@ -223,26 +269,55 @@ export default async function AgentDetailPage({
               </CardContent>
             </Card>
 
-            {riskSecurityStats && riskActivityCounts && (
+            {agentRisk && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Risk overview</CardTitle>
+                  <CardTitle>Risk score</CardTitle>
                   <Link href="/security" className="text-xs font-medium text-muted-foreground hover:text-foreground">
                     Security
                   </Link>
                 </CardHeader>
                 <CardContent>
+                  <AgentRiskScore risk={agentRisk} />
+                </CardContent>
+              </Card>
+            )}
+
+            {behavioralBaseline && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Behavioral baseline</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <BehavioralBaselineCard baseline={behavioralBaseline} />
+                </CardContent>
+              </Card>
+            )}
+
+            {riskSecurityStats && riskActivityCounts && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Agent health</CardTitle>
+                  <Link href="/security" className="text-xs font-medium text-muted-foreground hover:text-foreground">
+                    Security
+                  </Link>
+                </CardHeader>
+                <CardContent>
+                  <div className="mb-4 flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Activity</span>
+                    <span className={`font-medium ${riskSecurityStats.hasActivityAnomaly ? "text-warning" : "text-success"}`}>
+                      {riskSecurityStats.hasActivityAnomaly ? "Unusual" : "Normal"}
+                    </span>
+                  </div>
                   <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
                     <div>
-                      <dt className="text-xs text-muted-foreground">Open security alerts</dt>
-                      <dd className={`mt-0.5 font-medium tabular-nums ${riskSecurityStats.open > 0 ? "text-warning" : "text-foreground"}`}>
-                        {riskSecurityStats.open}
-                      </dd>
+                      <dt className="text-xs text-muted-foreground">Actions (24h)</dt>
+                      <dd className="mt-0.5 font-medium tabular-nums text-foreground">{riskActivityCounts.total}</dd>
                     </div>
                     <div>
-                      <dt className="text-xs text-muted-foreground">High / critical</dt>
-                      <dd className={`mt-0.5 font-medium tabular-nums ${riskSecurityStats.highOrCritical > 0 ? "text-danger" : "text-foreground"}`}>
-                        {riskSecurityStats.highOrCritical}
+                      <dt className="text-xs text-muted-foreground">High-risk actions (24h)</dt>
+                      <dd className={`mt-0.5 font-medium tabular-nums ${riskActivityCounts.highRisk > 0 ? "text-danger" : "text-foreground"}`}>
+                        {riskActivityCounts.highRisk}
                       </dd>
                     </div>
                     <div>
@@ -252,8 +327,20 @@ export default async function AgentDetailPage({
                       </dd>
                     </div>
                     <div>
+                      <dt className="text-xs text-muted-foreground">Warnings (24h)</dt>
+                      <dd className={`mt-0.5 font-medium tabular-nums ${riskActivityCounts.warnings > 0 ? "text-warning" : "text-foreground"}`}>
+                        {riskActivityCounts.warnings}
+                      </dd>
+                    </div>
+                    <div>
                       <dt className="text-xs text-muted-foreground">Approval required (24h)</dt>
                       <dd className="mt-0.5 font-medium tabular-nums text-foreground">{riskActivityCounts.approvalRequired}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Open security alerts</dt>
+                      <dd className={`mt-0.5 font-medium tabular-nums ${riskSecurityStats.open > 0 ? "text-warning" : "text-foreground"}`}>
+                        {riskSecurityStats.open}
+                      </dd>
                     </div>
                   </dl>
                   <div className="mt-4 border-t border-border pt-4 text-sm">
@@ -288,6 +375,8 @@ export default async function AgentDetailPage({
                     timestamp={event.timestamp}
                     action={event.action}
                     resource={event.resource}
+                    toolName={event.toolName}
+                    description={event.description}
                     status={event.status}
                   />
                 ))}
@@ -458,6 +547,43 @@ export default async function AgentDetailPage({
           ) : (
             <div className="overflow-hidden rounded-lg border border-border bg-surface">
               <AgentPoliciesList policies={agentPolicies} agentName={agent.name} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "security" && (
+        <div>
+          <div className="mb-4 flex justify-end">
+            <ButtonLink href={`/audit?agentId=${agent.id}`} variant="secondary" size="sm">
+              View audit trail
+            </ButtonLink>
+          </div>
+          {agentSecurityAlerts.length === 0 ? (
+            <EmptyState
+              icon={ShieldAlert}
+              title="No security alerts for this agent"
+              description="Detected anomalies, policy violations, and risk indicators for this agent will appear here."
+            />
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-border bg-surface">
+              <ul className="divide-y divide-border">
+                {agentSecurityAlerts.map((alert) => (
+                  <li key={alert.id} className="px-5 py-3.5">
+                    <Link
+                      href={`/security/${alert.id}`}
+                      className="focus-ring flex items-center justify-between gap-3 rounded-sm text-sm hover:underline"
+                    >
+                      <span className="min-w-0 truncate font-medium text-foreground">{alert.title}</span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <SecurityAlertSeverityBadge severity={alert.severity} />
+                        <SecurityAlertStatusBadge status={alert.status} />
+                      </span>
+                    </Link>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{formatRelativeTime(alert.lastSeenAt)}</p>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

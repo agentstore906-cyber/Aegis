@@ -32,11 +32,19 @@ descriptions say "likely contributor" and "detected pattern," never
 | New tool usage | `NEW_TOOL_USAGE` | First-ever action in a given `namespace.*` for this agent (namespace = the part of the action before its first `.`; the whole action if there's no dot) | LOW |
 | High-risk burst | `HIGH_RISK_BURST` | ≥3 HIGH/CRITICAL-risk actions for one agent within 10 minutes | HIGH |
 | Cost spike | `COST_SPIKE` | Today's spend for an agent ≥3× its trailing 7-day daily average, with a $1 minimum floor so idle agents don't trip on trivial spend | HIGH |
+| Activity volume spike | `ACTIVITY_VOLUME_SPIKE` | This hour's action count for an agent ≥5× its trailing 7-day hourly average, with a floor of 5 actions so a near-idle agent doesn't trip on trivial volume | HIGH |
+| Data access spike (Phase 2) | `DATA_ACCESS_SPIKE` | Today's `DATA_ACCESS` count ≥4× the agent's trailing daily average, floor of 5 | HIGH |
+| Delete activity spike (Phase 2) | `DELETE_ACTIVITY_SPIKE` | Today's delete-keyword-matched action count ≥3× the agent's trailing daily average, floor of 3 | HIGH |
+| External communication spike (Phase 2) | `COMMUNICATION_SPIKE` | Today's `COMMUNICATION` count ≥4× the agent's trailing daily average, floor of 5 | MEDIUM |
 
-`NEW_TOOL_USAGE`'s namespace heuristic is an honest approximation, not real
-tool-call instrumentation — ingested events don't carry a dedicated tool
-identifier (see `docs/cost-intelligence.md`'s note on the same limitation
-for cost breakdowns by tool).
+`NEW_TOOL_USAGE` uses the real `toolName` reported on `POST
+/api/v1/events` (see `docs/api.md`) when the caller sends one. Only when an
+event carries no `toolName` does it fall back to approximating a "tool"
+from the action's dot-namespace prefix (e.g. "crm" in "crm.export") — an
+honest approximation for ingestion paths that don't report a tool
+identity, not a claim that Aegis observed real tool-call instrumentation
+in that case (see `docs/cost-intelligence.md`'s note on the same
+limitation for cost breakdowns by tool).
 
 `COST_SPIKE` is deliberately just another entry in this table, not a
 separate anomaly system — see `docs/cost-intelligence.md`.
@@ -66,10 +74,10 @@ persisting an externally-reported event). Both call
 - Runs the activity-triggered detectors (new sensitive action, new tool,
   block spike, high-risk burst, and — only when the triggering event
   itself failed — failure loop) using short, indexed-window queries.
-- Always also runs the cost-spike check. Two indexed, week-scoped
-  `SUM` aggregates per event is cheap enough to run inline; alert spam is
-  prevented by the 24h dedup window above, not by throttling how often the
-  check itself runs.
+- Always also runs the cost-spike and activity-volume-spike checks. Each
+  is two indexed, window-scoped aggregates per event — cheap enough to run
+  inline; alert spam is prevented by the 24h dedup window above, not by
+  throttling how often the checks themselves run.
 - **Never throws.** A detector failure is logged and swallowed — it must
   never break the activity/evaluation flow it's piggybacking on.
 
@@ -90,3 +98,46 @@ them is `OWNER`/`ADMIN`/`SECURITY` only.
 - No automated remediation — "Pause agent" from an alert is a real,
   explicit action a human takes, never automatic.
 - No retention enforcement — see `docs/retention.md`.
+
+## Phase 2 — behavioral baseline and the Agent Risk Score
+
+Phase 2 (`docs/behavioral-intelligence.md`) adds three more detectors
+(above) and a transparent, explainable 0-100 **Agent Risk Score**
+(`lib/security/risk-score.ts`) built from these alerts plus real activity
+counts. The risk score does not contradict "no opaque risk scoring" above
+— it's the deterministic, rule-based, fully-explained kind, not an ML
+model; see `docs/behavioral-intelligence.md` for its exact factors.
+
+## Confidence and recommended action
+
+Every `Finding` (`lib/security/types.ts`) can carry an optional
+`confidence` (`LOW`/`MEDIUM`/`HIGH`) — distinct from `severity`, which is
+"how bad if true" — and a `recommendedAction`. Only the heuristic,
+indicator-style detectors below set `confidence`; the baseline-relative
+spike detectors above are deterministic (a count either crossed the
+threshold or it didn't), so they leave it unset rather than manufacture a
+number.
+
+- **`PROMPT_INJECTION_INDICATOR`** (`detectPromptInjectionIndicator`) — a
+  keyword heuristic over self-reported free text (`description`,
+  never raw prompts Aegis doesn't have access to). Always `confidence:
+  "LOW"` and worded "Potential prompt injection detected," never
+  "confirmed" — false positives are expected.
+- **`CREDENTIAL_EXPOSURE_DETECTED`** (`detectCredentialExposureIndicator`)
+  — fires when `lib/security/redact.ts#findSecretShapedKeyPaths` finds a
+  secret-shaped field name in an event's metadata. Deterministic (a key
+  either matches the pattern or not), so `confidence: "HIGH"` — but the
+  evidence only ever names the field, never the value.
+- **`POLICY_VIOLATION_DETECTED`** (`detectPolicyViolationAfterTheFact`) —
+  not a behavioral detector at all; see `docs/enforcement.md` for why
+  this exists and why it is worded as detection, never as blocking.
+
+## What is NOT implemented
+
+Aegis does not inspect an agent's raw model prompts, completions, tool
+call arguments beyond what's reported, or any traffic outside what the
+agent explicitly reports via the API. Every detector above works from
+self-reported `action`/`resource`/`description`/`metadata` — there is no
+network interception, no model output scanning, and no way for Aegis to
+catch an injection or exfiltration attempt an agent's own integration
+doesn't report in the first place.

@@ -8,7 +8,7 @@ import { updateOrganizationGeneralAction, type OrganizationSettingsState } from 
 
 const initialState: OrganizationSettingsState = {};
 
-export function GeneralSettingsForm({ name }: { name: string }) {
+export function GeneralSettingsForm({ name, isPersonal = false }: { name: string; isPersonal?: boolean }) {
   const [state, formAction, pending] = useActionState(updateOrganizationGeneralAction, initialState);
 
   return (
@@ -17,7 +17,7 @@ export function GeneralSettingsForm({ name }: { name: string }) {
       {state.success && <Alert tone="success">Saved.</Alert>}
 
       <div className="max-w-sm">
-        <Label htmlFor="orgName">Organization name</Label>
+        <Label htmlFor="orgName">{isPersonal ? "Workspace name" : "Organization name"}</Label>
         <Input id="orgName" name="name" required minLength={2} maxLength={80} defaultValue={name} />
       </div>
 

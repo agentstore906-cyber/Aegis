@@ -44,6 +44,7 @@ export default async function SecurityAlertDetailPage({ params }: { params: Prom
     action: (alert.evidence as { action?: string } | null)?.action ?? "",
     agentId: alert.agentId,
     decision: "BLOCK",
+    severity: alert.severity,
   }).toString()}`;
 
   return (
@@ -78,8 +79,20 @@ export default async function SecurityAlertDetailPage({ params }: { params: Prom
         <CardHeader>
           <CardTitle>What happened</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           <p className="text-sm text-foreground">{alert.description}</p>
+          {alert.confidence && (
+            <p className="text-xs text-muted-foreground">
+              Confidence: <span className="font-medium text-foreground">{alert.confidence.toLowerCase()}</span> — this
+              is a heuristic indicator, not a confirmed finding.
+            </p>
+          )}
+          {alert.recommendedAction && (
+            <div className="rounded-md border border-border bg-surface-muted px-3.5 py-2.5">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recommended action</p>
+              <p className="mt-0.5 text-sm text-foreground">{alert.recommendedAction}</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

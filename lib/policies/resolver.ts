@@ -11,16 +11,23 @@ import type {
  * Decision severity, strictest first. This ordering is the entire security
  * model of the engine: a single matching BLOCK always wins, regardless of
  * how many other rules would ALLOW. Fail closed.
+ *
+ * ALERT sits between REQUIRE_APPROVAL and ALLOW: it is not an enforcement
+ * point (the action still proceeds, same as ALLOW would let it), but it
+ * outranks a plain ALLOW so a matching ALERT policy's reason/severity wins
+ * the explanation over an unrelated ALLOW permission.
  */
 const SEVERITY: Record<PolicyDecision, number> = {
-  BLOCK: 3,
-  REQUIRE_APPROVAL: 2,
+  BLOCK: 4,
+  REQUIRE_APPROVAL: 3,
+  ALERT: 2,
   ALLOW: 1,
 };
 
 const DECISION_VERB: Record<PolicyDecision, string> = {
   BLOCK: "Blocked",
   REQUIRE_APPROVAL: "Approval required",
+  ALERT: "Allowed, and flagged",
   ALLOW: "Allowed",
 };
 
@@ -29,6 +36,8 @@ export type ResolvedDecision = {
   reason: string;
   matchedPolicySnapshots: MatchedPolicySnapshot[];
   matchedPermissionSnapshot?: PermissionSnapshot;
+  /** The policy that drove the explanation — set whenever a policy (not just the baseline permission) won. Callers use this to size an ALERT's SecurityAlert to the winning policy's severity. */
+  winningPolicySnapshot?: MatchedPolicySnapshot;
 };
 
 function friendlyFieldName(field: string): string {
@@ -63,6 +72,7 @@ export function resolveDecision(
     name: p.name,
     decision: p.decision,
     priority: p.priority,
+    severity: p.severity,
   }));
 
   const matchedPermissionSnapshot: PermissionSnapshot | undefined = permission
@@ -97,5 +107,9 @@ export function resolveDecision(
     ? `${DECISION_VERB[strictest]} because the active policy "${winner.name}" matched "${input.action}"${describeMatchedDetails(winner, input)}.`
     : `${DECISION_VERB[strictest]} because the baseline permission for "${input.action}" is set to ${strictest}.`;
 
-  return { decision: strictest, reason, matchedPolicySnapshots, matchedPermissionSnapshot };
+  const winningPolicySnapshot = winner
+    ? matchedPolicySnapshots.find((s) => s.id === winner.id)
+    : undefined;
+
+  return { decision: strictest, reason, matchedPolicySnapshots, matchedPermissionSnapshot, winningPolicySnapshot };
 }

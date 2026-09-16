@@ -3,7 +3,7 @@ import { DocPage } from "@/components/marketing/doc-page";
 
 export const metadata: Metadata = {
   title: "Policies & Permissions",
-  description: "How Aegis decides ALLOW, REQUIRE_APPROVAL, or BLOCK for every agent action.",
+  description: "How Aegis decides ALLOW, REQUIRE_APPROVAL, BLOCK, or ALERT for every agent action.",
 };
 
 export default function PoliciesDocPage() {
@@ -17,7 +17,7 @@ export default function PoliciesDocPage() {
       <p>
         The first layer answers &ldquo;what is this agent generally allowed to do?&rdquo; A permission matches an
         exact or wildcard <code>action</code> (and optionally a <code>resource</code>) for one agent, and resolves to
-        <code>ALLOW</code>, <code>REQUIRE_APPROVAL</code>, or <code>BLOCK</code>.
+        <code>ALLOW</code>, <code>REQUIRE_APPROVAL</code>, <code>BLOCK</code>, or <code>ALERT</code>.
       </p>
 
       <h2>Conditional policies</h2>
@@ -31,8 +31,14 @@ export default function PoliciesDocPage() {
       <h2>How a decision is resolved</h2>
       <p>When an agent asks Aegis about an action, both layers are checked and combined by strict precedence:</p>
       <p>
-        <strong>BLOCK</strong> beats <strong>REQUIRE_APPROVAL</strong> beats <strong>ALLOW</strong> — regardless of
-        priority ordering between policies. If anything blocks the action, it&rsquo;s blocked, full stop.
+        <strong>BLOCK</strong> beats <strong>REQUIRE_APPROVAL</strong> beats <strong>ALERT</strong> beats{" "}
+        <strong>ALLOW</strong> — regardless of priority ordering between policies. If anything blocks the action,
+        it&rsquo;s blocked, full stop.
+      </p>
+      <p>
+        <strong>ALERT</strong> is not an enforcement point — the action still proceeds — but the match is recorded as
+        a detected violation and raises a security alert, so a policy can flag risky behavior for review without
+        interrupting the agent.
       </p>
       <p>
         An action with <strong>no matching permission and no matching policy resolves to BLOCK</strong>. The engine

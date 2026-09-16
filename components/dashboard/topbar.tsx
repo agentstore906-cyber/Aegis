@@ -53,7 +53,7 @@ export function Topbar({
 
       <div className="flex items-center gap-2 sm:gap-3">
         {showUpgrade && (
-          <ButtonLink href="/settings/billing" size="sm">
+          <ButtonLink href="/upgrade" size="sm">
             <Sparkles className="size-4" aria-hidden="true" />
             Upgrade
           </ButtonLink>

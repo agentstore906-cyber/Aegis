@@ -41,6 +41,7 @@ export async function createOrganizationAction(
 
   const parsed = createOrganizationSchema.safeParse({
     name: formData.get("name"),
+    accountType: formData.get("accountType") || undefined,
   });
 
   if (!parsed.success) {
@@ -53,6 +54,7 @@ export async function createOrganizationAction(
     data: {
       name: parsed.data.name,
       slug,
+      accountType: parsed.data.accountType,
       members: {
         create: { userId: user.id, role: "OWNER" },
       },
@@ -68,7 +70,44 @@ export async function createOrganizationAction(
     maxAge: 60 * 60 * 24 * 365,
   });
 
-  trackEvent("workspace_created", { organizationId: organization.id });
+  trackEvent("workspace_created", { organizationId: organization.id, accountType: parsed.data.accountType });
+
+  redirect("/onboarding/connect");
+}
+
+/**
+ * Provisions a PERSONAL workspace with no naming step — the individual
+ * chose "Personal" in onboarding, so there is nothing left to ask them.
+ * Mirrors createOrganizationAction's slug/cookie/redirect behavior exactly,
+ * just with a derived name and no form input.
+ */
+export async function createPersonalWorkspaceAction(): Promise<void> {
+  const user = await requireUser();
+
+  const name = user.name ? `${user.name}'s Workspace` : "Personal Workspace";
+  const slug = await uniqueSlugFor(name);
+
+  const organization = await prisma.organization.create({
+    data: {
+      name,
+      slug,
+      accountType: "PERSONAL",
+      members: {
+        create: { userId: user.id, role: "OWNER" },
+      },
+    },
+  });
+
+  const cookieStore = await cookies();
+  cookieStore.set(ACTIVE_ORG_COOKIE, organization.slug, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+  });
+
+  trackEvent("workspace_created", { organizationId: organization.id, accountType: "PERSONAL" });
 
   redirect("/onboarding/connect");
 }

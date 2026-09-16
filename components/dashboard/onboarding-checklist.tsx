@@ -11,7 +11,7 @@ export type OnboardingStepConfig = {
   href: string;
 };
 
-const STEPS: OnboardingStepConfig[] = [
+export const STEPS: OnboardingStepConfig[] = [
   { key: "agentConnected", label: "Connect your first agent", href: "/agents/new" },
   { key: "firstEventReceived", label: "Receive your first event", href: "/developers/quickstart" },
   { key: "firstPolicyCreated", label: "Create your first policy", href: "/policies/new" },

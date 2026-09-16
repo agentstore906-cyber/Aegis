@@ -21,11 +21,13 @@ import { PendingInvitationsList } from "@/components/settings/pending-invitation
 import { TeamsPanel } from "@/components/settings/teams-panel";
 import { UsageBar } from "@/components/billing/usage-bar";
 
-export const metadata: Metadata = { title: "Organization settings" };
+export const metadata: Metadata = { title: "Workspace settings" };
 
 export default async function OrganizationSettingsPage() {
   const { organization, user, role } = await requireActiveOrganization();
   if (!canManageMembers(role)) notFound();
+
+  const isPersonal = organization.accountType === "PERSONAL";
 
   const [members, invitations, teams, origin] = await Promise.all([
     listMembers(organization.id),
@@ -37,39 +39,46 @@ export default async function OrganizationSettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <PageHeader title="Organization settings" description={organization.name} />
+      <PageHeader
+        title={isPersonal ? "Workspace settings" : "Organization settings"}
+        description={organization.name}
+      />
 
       <Card>
         <CardHeader>
           <CardTitle>General</CardTitle>
         </CardHeader>
         <CardContent>
-          <GeneralSettingsForm name={organization.name} />
+          <GeneralSettingsForm name={organization.name} isPersonal={isPersonal} />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Members</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {plan.memberLimit !== null && <UsageBar label="Members" used={members.length} limit={plan.memberLimit} />}
-          <InviteMemberForm origin={origin} />
-          <PendingInvitationsList invitations={invitations} origin={origin} />
-          <div className="overflow-hidden rounded-lg border border-border">
-            <MembersTable members={members} currentUserId={user.id} />
-          </div>
-        </CardContent>
-      </Card>
+      {!isPersonal && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Members</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {plan.memberLimit !== null && <UsageBar label="Members" used={members.length} limit={plan.memberLimit} />}
+            <InviteMemberForm origin={origin} />
+            <PendingInvitationsList invitations={invitations} origin={origin} />
+            <div className="overflow-hidden rounded-lg border border-border">
+              <MembersTable members={members} currentUserId={user.id} />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Teams</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <TeamsPanel teams={teams} />
-        </CardContent>
-      </Card>
+      {!isPersonal && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Teams</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TeamsPanel teams={teams} />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

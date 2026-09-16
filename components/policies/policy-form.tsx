@@ -6,9 +6,16 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { ConditionEditor, type EditableCondition } from "@/components/policies/condition-editor";
 import { describePolicy } from "@/lib/policies/describe";
-import { POLICY_DECISIONS, POLICY_STATUSES } from "@/lib/validation/policy";
+import { POLICY_DECISIONS, POLICY_SEVERITIES, POLICY_STATUSES } from "@/lib/validation/policy";
 import { AGENT_ENVIRONMENTS, AGENT_RISK_LEVELS } from "@/lib/validation/agent";
-import type { Environment, Policy, PolicyCondition, PolicyDecision, RiskLevel } from "@prisma/client";
+import type {
+  Environment,
+  Policy,
+  PolicyCondition,
+  PolicyDecision,
+  RiskLevel,
+  SecurityAlertSeverity,
+} from "@prisma/client";
 import type { PolicyFormState } from "@/lib/policies/actions";
 
 const initialState: PolicyFormState = {};
@@ -36,6 +43,7 @@ export function PolicyForm({
   const [tool, setTool] = useState(policy?.tool ?? "");
   const [riskLevel, setRiskLevel] = useState<RiskLevel | "">(policy?.riskLevel ?? "");
   const [decision, setDecision] = useState<PolicyDecision>(policy?.decision ?? "REQUIRE_APPROVAL");
+  const [severity, setSeverity] = useState<SecurityAlertSeverity>(policy?.severity ?? "MEDIUM");
   const [editableConditions, setEditableConditions] = useState<EditableCondition[]>(
     (conditions ?? []).map((c) => ({
       field: c.field,
@@ -95,7 +103,7 @@ export function PolicyForm({
           />
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <Label htmlFor="status">Status</Label>
             <Select id="status" name="status" defaultValue={policy?.status ?? "ACTIVE"}>
@@ -132,6 +140,25 @@ export function PolicyForm({
                 </option>
               ))}
             </Select>
+            {decision === "ALERT" && (
+              <FieldHint>Action still proceeds — this raises a security alert instead of stopping it.</FieldHint>
+            )}
+          </div>
+          <div>
+            <Label htmlFor="severity">Severity</Label>
+            <Select
+              id="severity"
+              name="severity"
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value as SecurityAlertSeverity)}
+            >
+              {POLICY_SEVERITIES.map((s) => (
+                <option key={s} value={s}>
+                  {s.charAt(0) + s.slice(1).toLowerCase()}
+                </option>
+              ))}
+            </Select>
+            <FieldHint>Used as the alert&rsquo;s severity when decision is Alert.</FieldHint>
           </div>
         </div>
       </div>

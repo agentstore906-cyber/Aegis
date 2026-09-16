@@ -28,6 +28,7 @@ let orgA: { id: string };
 let orgB: { id: string };
 let agentA: { id: string; slug: string };
 let agentB: { id: string; slug: string };
+let disconnectedAgent: { id: string; slug: string };
 let rawKeyA: string;
 
 function jsonRequest(url: string, body: unknown, headers: Record<string, string> = {}) {
@@ -70,6 +71,27 @@ beforeAll(async () => {
     ],
   });
 
+  disconnectedAgent = await prisma.agent.create({
+    data: {
+      organizationId: orgA.id,
+      name: "Disconnected Test Agent",
+      slug: "disconnected-test-agent",
+      owner: "Test",
+      modelProvider: "Custom Agent",
+      modelName: "unknown",
+    },
+  });
+  await prisma.agentConnection.create({
+    data: {
+      organizationId: orgA.id,
+      agentId: disconnectedAgent.id,
+      connectorType: "CUSTOM_SDK",
+      status: "DISCONNECTED",
+      disconnectedAt: new Date(),
+      capabilities: { agentDiscovery: false, activityMonitoring: true, usageMonitoring: false, costMonitoring: false, pauseAgent: false, killSwitch: false, credentialVerification: false },
+    },
+  });
+
   const created = await createApiKey(orgA.id, null, { name: "Routes test key", environment: "TEST" });
   rawKeyA = created.raw;
 });
@@ -79,6 +101,7 @@ afterAll(async () => {
   // SecurityAlert.agent is onDelete: Restrict (Phase 6) — clear any
   // alerts the detectors created during evaluation before deleting agents.
   await prisma.securityAlert.deleteMany({ where: { organizationId: { in: orgIds } } });
+  await prisma.agentConnection.deleteMany({ where: { organizationId: { in: orgIds } } });
   await prisma.approvalDecision.deleteMany({ where: { organizationId: { in: orgIds } } });
   await prisma.approvalRequest.deleteMany({ where: { organizationId: { in: orgIds } } });
   await prisma.idempotencyRecord.deleteMany({ where: { organizationId: { in: orgIds } } });
@@ -133,6 +156,18 @@ describe("POST /api/v1/events", () => {
     expect(body.error.code).toBe("AGENT_NOT_FOUND");
   });
 
+  it("rejects activity for an agent whose connection was disconnected", async () => {
+    const response = await eventsPost(
+      jsonRequest("/api/v1/events", { agent: disconnectedAgent.slug, eventType: "TOOL_CALL", action: "invoice.read" })
+    );
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error.code).toBe("AGENT_CONNECTION_DISCONNECTED");
+
+    const count = await prisma.activityEvent.count({ where: { agentId: disconnectedAgent.id } });
+    expect(count).toBe(0);
+  });
+
   it("rejects a malformed payload", async () => {
     const response = await eventsPost(jsonRequest("/api/v1/events", { agent: agentA.slug }));
     expect(response.status).toBe(400);
@@ -162,9 +197,136 @@ describe("POST /api/v1/events", () => {
     expect(event.modelName).toBe("gpt-5");
     expect(event.costCents).toBe(2);
   });
+
+  it("stores tool, description, and computes risk from the action/resource, not the request", async () => {
+    const response = await eventsPost(
+      jsonRequest("/api/v1/events", {
+        agent: agentA.slug,
+        eventType: "DATA_ACCESS",
+        action: "crm.export",
+        resource: "customer_list",
+        description: "Nightly customer list export",
+        tool: "CRM",
+        status: "SUCCESS",
+      })
+    );
+    expect(response.status).toBe(201);
+    const body = await response.json();
+
+    const event = await prisma.activityEvent.findUniqueOrThrow({ where: { id: body.id } });
+    expect(event.toolName).toBe("CRM");
+    expect(event.description).toBe("Nightly customer list export");
+    // export + a customer-shaped resource -> CRITICAL, regardless of the
+    // agent's own static riskLevel (LOW by default in this fixture) — the
+    // request has no riskLevel field at all, it's always computed server-side.
+    expect(event.riskLevel).toBe("CRITICAL");
+  });
+
+  it("accepts BLOCKED and WARNING as self-reported statuses", async () => {
+    const blockedResponse = await eventsPost(
+      jsonRequest("/api/v1/events", {
+        agent: agentA.slug,
+        eventType: "ACTION",
+        action: "refund.issue",
+        status: "BLOCKED",
+      })
+    );
+    expect(blockedResponse.status).toBe(201);
+    const blockedBody = await blockedResponse.json();
+    const blockedEvent = await prisma.activityEvent.findUniqueOrThrow({ where: { id: blockedBody.id } });
+    expect(blockedEvent.status).toBe("BLOCKED");
+
+    const warningResponse = await eventsPost(
+      jsonRequest("/api/v1/events", {
+        agent: agentA.slug,
+        eventType: "ACTION",
+        action: "docs.read",
+        status: "WARNING",
+      })
+    );
+    expect(warningResponse.status).toBe(201);
+    const warningBody = await warningResponse.json();
+    const warningEvent = await prisma.activityEvent.findUniqueOrThrow({ where: { id: warningBody.id } });
+    expect(warningEvent.status).toBe("WARNING");
+  });
+
+  it("rejects a request body over the size limit", async () => {
+    const response = await eventsPost(
+      jsonRequest("/api/v1/events", {
+        agent: agentA.slug,
+        eventType: "TOOL_CALL",
+        action: "invoice.read",
+        metadata: { blob: "x".repeat(64 * 1024) },
+      })
+    );
+    expect(response.status).toBe(413);
+    const body = await response.json();
+    expect(body.error.code).toBe("PAYLOAD_TOO_LARGE");
+  });
+
+  it("rejects metadata containing a nested prototype-pollution key", async () => {
+    // Built via JSON.parse, not an object literal: `{ __proto__: {...} }` as
+    // a literal invokes the prototype-setter rather than creating an own,
+    // JSON-serializable key. JSON.parse (like a real attacker's raw HTTP
+    // body) makes "__proto__" a genuine own property instead. Nested one
+    // level deep (not top-level) because `eventIngestSchema`'s
+    // `z.record(z.string(), z.unknown())` step harmlessly absorbs a
+    // top-level "__proto__" key on its own (it never round-trips anywhere);
+    // a nested one passes through that shallow step untouched and is what
+    // lib/policies/safe-context.ts's UNSAFE_KEYS check exists to catch.
+    const metadata = JSON.parse('{"nested": {"__proto__": {"polluted": true}}}');
+    const response = await eventsPost(
+      jsonRequest("/api/v1/events", {
+        agent: agentA.slug,
+        eventType: "TOOL_CALL",
+        action: "invoice.read",
+        metadata,
+      })
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects metadata nested deeper than the safe-context depth limit", async () => {
+    const deeplyNested = { a: { b: { c: { d: { e: "too deep" } } } } };
+    const response = await eventsPost(
+      jsonRequest("/api/v1/events", {
+        agent: agentA.slug,
+        eventType: "TOOL_CALL",
+        action: "invoice.read",
+        metadata: deeplyNested,
+      })
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("redacts secret-shaped metadata keys before persisting", async () => {
+    const response = await eventsPost(
+      jsonRequest("/api/v1/events", {
+        agent: agentA.slug,
+        eventType: "TOOL_CALL",
+        action: "invoice.read",
+        metadata: { apiKey: "sk_live_should_never_be_stored", note: "fine" },
+      })
+    );
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    const event = await prisma.activityEvent.findUniqueOrThrow({ where: { id: body.id } });
+    const metadata = event.metadata as Record<string, unknown>;
+    expect(metadata.apiKey).toBe("[REDACTED]");
+    expect(metadata.note).toBe("fine");
+  });
 });
 
 describe("POST /api/v1/evaluate", () => {
+  it("rejects an authorization request for a disconnected agent", async () => {
+    const response = await evaluatePost(
+      jsonRequest("/api/v1/evaluate", { agent: disconnectedAgent.slug, action: "invoice.read" })
+    );
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error.code).toBe("AGENT_CONNECTION_DISCONNECTED");
+  });
+
   it("returns ALLOW for a permitted action", async () => {
     const response = await evaluatePost(jsonRequest("/api/v1/evaluate", { agent: agentA.slug, action: "invoice.read" }));
     expect(response.status).toBe(200);

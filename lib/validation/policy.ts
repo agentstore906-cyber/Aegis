@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { AGENT_ENVIRONMENTS, AGENT_RISK_LEVELS } from "@/lib/validation/agent";
 
-export const POLICY_DECISIONS = ["ALLOW", "REQUIRE_APPROVAL", "BLOCK"] as const;
+export const POLICY_DECISIONS = ["ALLOW", "REQUIRE_APPROVAL", "BLOCK", "ALERT"] as const;
 export const POLICY_STATUSES = ["ACTIVE", "DISABLED"] as const;
+export const POLICY_SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 export const CONDITION_OPERATORS = [
   "EQUALS",
   "NOT_EQUALS",
@@ -87,6 +88,7 @@ export const policySchema = z.object({
   status: z.enum(POLICY_STATUSES),
   priority: z.coerce.number().int().min(0).max(1000),
   decision: z.enum(POLICY_DECISIONS),
+  severity: z.enum(POLICY_SEVERITIES),
   agentId: z.string().trim().max(60).optional().or(z.literal("")),
   action: actionSchema,
   resource: z.string().trim().max(80).optional().or(z.literal("")),

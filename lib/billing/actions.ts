@@ -381,7 +381,11 @@ export async function changeSubscriptionPlanAction(planId: string): Promise<Bill
         return { error: "Could not change the plan right now. Please try again shortly." };
       }
 
+      // The <PricingPlans> "change" CTA this action backs is reachable from
+      // both /settings/billing and the pricing-only /upgrade page — revalidate
+      // both so either one reflects the new current plan immediately.
       revalidatePath("/settings/billing");
+      revalidatePath("/upgrade");
       return {};
     }
   );

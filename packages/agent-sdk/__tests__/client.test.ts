@@ -98,6 +98,61 @@ describe("Aegis client", () => {
     });
   });
 
+  describe("convenience trackX() methods (0.4.0)", () => {
+    it.each([
+      ["trackAgentStarted", {}, "SYSTEM", "agent.started"],
+      ["trackAgentFinished", {}, "SYSTEM", "agent.finished"],
+      ["trackToolCall", { tool: "CRM" }, "TOOL_CALL", "tool.called"],
+      ["trackApiCall", {}, "ACTION", "api.called"],
+      ["trackDataRead", {}, "DATA_ACCESS", "data.read"],
+      ["trackDataWrite", {}, "DATA_ACCESS", "data.written"],
+      ["trackMessageSent", {}, "COMMUNICATION", "message.sent"],
+      ["trackError", {}, "SYSTEM", "error"],
+      ["trackPermissionChanged", {}, "SYSTEM", "permission.changed"],
+    ] as const)("%s() posts eventType=%s action=%s", async (method, extra, eventType, action) => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ id: "evt_1", traceId: null }));
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (client() as any)[method]({ agent: "finance-agent", ...extra });
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body.eventType).toBe(eventType);
+      expect(body.action).toBe(action);
+      expect(body.agent).toBe("finance-agent");
+    });
+
+    it("trackToolCall() passes tool through", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ id: "evt_1", traceId: null }));
+
+      await client().trackToolCall({ agent: "sales-agent", tool: "CRM", resource: "contact:1" });
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body.tool).toBe("CRM");
+      expect(body.resource).toBe("contact:1");
+    });
+
+    it("trackError() defaults status to FAILURE but allows override", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ id: "evt_1", traceId: null }));
+      await client().trackError({ agent: "a", description: "Timed out calling CRM" });
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(JSON.parse(init.body as string).status).toBe("FAILURE");
+
+      fetchMock.mockResolvedValueOnce(jsonResponse({ id: "evt_2", traceId: null }));
+      await client().trackError({ agent: "a", status: "WARNING" });
+      const [, init2] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(JSON.parse(init2.body as string).status).toBe("WARNING");
+    });
+
+    it("allows overriding the default action", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ id: "evt_1", traceId: null }));
+      await client().trackDataRead({ agent: "a", action: "crm.contact.read" });
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(JSON.parse(init.body as string).action).toBe("crm.contact.read");
+    });
+  });
+
   describe("authorize", () => {
     it("returns an ALLOW result", async () => {
       fetchMock.mockResolvedValueOnce(jsonResponse({ decision: "ALLOW", evaluationId: "eval_1", traceId: "trace_1" }));

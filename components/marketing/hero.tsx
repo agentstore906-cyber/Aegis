@@ -10,10 +10,10 @@ export function Hero() {
           AI Agent Infrastructure
         </p>
         <h1 className="mt-4 text-4xl font-semibold tracking-tight text-balance text-foreground sm:text-5xl">
-          The Control Plane for AI Agents.
+          The Control Center for AI Agents.
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-lg text-pretty text-muted-foreground">
-          Monitor, control, and secure every AI agent from one place.
+          Control every AI agent you use — monitor, control, and secure them from one place.
         </p>
 
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -31,7 +31,7 @@ export function Hero() {
         </p>
 
         <p className="mt-6 text-sm text-muted-foreground">
-          Built for teams running AI agents in production.
+          Built for individuals, teams, and enterprises running AI agents in production.
         </p>
       </div>
 

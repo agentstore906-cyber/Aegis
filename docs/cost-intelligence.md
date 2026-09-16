@@ -53,12 +53,40 @@ case (spec §12).
 `taskId`/`taskType` are optional SDK/API fields (see `docs/api.md`) — an
 agent that never sets them simply won't have this metric, gracefully.
 
+## Confirmed vs. estimated cost
+
+`lib/costs/pricing.ts#resolveEventCost` is the one place that decides,
+per event: `CONFIRMED` (the caller reported a real `costCents`),
+`ESTIMATED` (no cost reported, but token counts plus a recognized model
+name let Aegis price it from a small public list-price table), or
+`UNKNOWN` (neither — never a fabricated number). The `/costs` page's
+headline figures are always the SQL-summed `CONFIRMED` total; any
+`ESTIMATED` spend is computed separately
+(`getEstimatedAdditionalSpendCentsThisMonth`) and shown as a distinct,
+clearly-labeled figure, never silently merged in.
+
+## Budgets
+
+`Budget` rows (organization-wide when `agentId` is null, or scoped to one
+agent) each carry a `period` (`DAILY`/`MONTHLY`), `limitCents`, and a
+`warningThresholdPercent`. Agent-scoped budgets are checked inline after
+every ingested event (`lib/costs/budgets.ts#checkAgentBudgets`, called
+from `lib/security/evaluate.ts`) and raise a `BUDGET_WARNING` or
+`BUDGET_EXCEEDED` `SecurityAlert` — always worded "alert triggered," never
+"spending blocked" (see `docs/enforcement.md`: Aegis has no mechanism to
+stop a provider from billing an agent's own API key). Organization-wide
+budgets are deliberately **not** turned into alerts — attributing an
+org-wide overage to whichever agent's event happened to trigger the check
+would misrepresent whose spending caused it — and are instead shown live
+on `/costs` (`getAllBudgetStatuses`). Only `OWNER`/`ADMIN`/`FINANCE`
+(`manage_budgets` capability) can create or delete a budget; every change
+is audited (`BUDGET_CREATED`/`BUDGET_UPDATED`/`BUDGET_DELETED`).
+
 ## What Phase 5 deliberately doesn't do
 
 - No currency other than USD, no per-org currency setting.
-- No hard spend limits / automatic blocking on budget — alerting only
-  (spec §14). A future hard-budget control would route through the Policy
-  Engine, not a separate cost-limiting system.
-- No cost-per-tool breakdown — `ActivityEvent` doesn't carry a dedicated
-  tool identifier (see `docs/security-intelligence.md`'s note on the same
-  gap for `NEW_TOOL_USAGE`).
+- No cost-per-tool breakdown UI yet. `ActivityEvent.toolName` exists (an
+  optional field on `POST /api/v1/events` — see `docs/api.md`) and already
+  feeds `NEW_TOOL_USAGE` detection (`docs/security-intelligence.md`), but
+  nothing on `/costs` groups spend by it yet, and older events (or any
+  event whose caller didn't set `tool`) simply have no tool to group by.

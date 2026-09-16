@@ -9,6 +9,7 @@ const TABS = [
   { id: "costs", label: "Costs" },
   { id: "policies", label: "Policies" },
   { id: "approvals", label: "Approvals" },
+  { id: "security", label: "Security" },
 ] as const;
 
 export function AgentTabs({ slug, active }: { slug: string; active: string }) {

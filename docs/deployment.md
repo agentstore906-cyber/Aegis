@@ -25,7 +25,7 @@ later. Copy `.env.example` and fill in real values (never commit them).
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `AUTH_SECRET` | Signs session JWTs — `openssl rand -base64 32` |
+| `AUTH_SECRET` | Signs session JWTs — `openssl rand -base64 32`. Also the source key for encrypting stored Connect Agent provider credentials (`lib/connectors/crypto.ts`) — rotating it makes existing OpenAI/Anthropic connections unable to decrypt their stored key, requiring a reconnect. |
 | `AUTH_URL` | Public base URL of the deployment (e.g. `https://app.example.com`) — required in production, auto-detected in dev |
 
 **Optional — platform admin.** Comma-separated allowlist of emails allowed

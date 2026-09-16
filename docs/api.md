@@ -49,6 +49,8 @@ Reports an action your agent already took. Does not ask permission — see
   "eventType": "TOOL_CALL",
   "action": "invoice.read",
   "resource": "invoice",
+  "description": "Read invoice inv_123 for renewal check",
+  "tool": "Stripe",
   "status": "SUCCESS",
   "traceId": "trace_123",
   "durationMs": 420,
@@ -62,13 +64,24 @@ Reports an action your agent already took. Does not ask permission — see
 `agent` is the agent's **slug** (shown in the dashboard URL,
 `/agents/<slug>`), scoped to your organization. `eventType` is one of
 `TOOL_CALL`, `MODEL_CALL`, `DATA_ACCESS`, `ACTION`, `DEPLOYMENT`,
-`COMMUNICATION`, `FINANCIAL`, `SYSTEM`. `status` is `SUCCESS` (default) or
-`FAILURE` — mapped internally to the dashboard's `ALLOWED`/`FAILED`
+`COMMUNICATION`, `FINANCIAL`, `SYSTEM`. `status` is `SUCCESS` (default),
+`FAILURE`, `BLOCKED` (your own guardrail stopped the action), or `WARNING`
+(succeeded, but the agent itself flagged it as suspicious) — mapped
+internally to the dashboard's `ALLOWED`/`FAILED`/`BLOCKED`/`WARNING`
 activity status, since this endpoint reports something that already
-happened, not a policy decision. All fields except `agent`, `eventType`,
-and `action` are optional. `metadata` is capped in size/depth/key-count by
-the same sanitizer the policy engine's context uses
-(`lib/policies/safe-context.ts`).
+happened, not a policy decision. `tool` names the integration that
+performed the action (e.g. `"CRM"`, `"Zendesk"`) and `description` is an
+optional human-readable summary shown in the activity feed instead of the
+raw `action` code. All fields except `agent`, `eventType`, and `action`
+are optional. `metadata` is capped in size/depth/key-count by the same
+sanitizer the policy engine's context uses (`lib/policies/safe-context.ts`),
+and any key that looks like a secret (`token`, `password`, `apiKey`, …) is
+redacted before it's ever stored — never rely on the caller to keep secrets
+out of `metadata`.
+
+Risk level isn't a request field — Aegis computes it from `eventType`,
+`action`, `resource`, and `status` using a deterministic rule engine
+(`lib/security/risk-scoring.ts`), never from a value the caller supplies.
 
 **Response** — `201`
 
@@ -191,6 +204,7 @@ Every error response has the same shape:
 | `INVALID_REQUEST` | 400 | Malformed JSON or a field failed validation |
 | `PAYLOAD_TOO_LARGE` | 413 | Body exceeds the endpoint's size limit |
 | `AGENT_NOT_FOUND` | 404 | `agent` slug doesn't resolve to an agent in your organization |
+| `AGENT_CONNECTION_DISCONNECTED` | 409 | The agent's connection was disconnected in Aegis — reconnect it before sending more activity (see `docs/connect-agent.md`) |
 | `APPROVAL_NOT_FOUND` | 404 | Approval id doesn't resolve in your organization |
 | `IDEMPOTENCY_KEY_CONFLICT` | 409 | Same `Idempotency-Key` reused with a different body |
 | `POLICY_EVALUATION_FAILED` | 502 | The policy engine could not complete (rare; logged server-side) |

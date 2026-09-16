@@ -5,3 +5,8 @@ import { hasCapability } from "@/lib/rbac/capabilities";
 export function canViewCosts(role: MemberRole): boolean {
   return hasCapability(role, "view_costs");
 }
+
+/** Only OWNER, ADMIN, and FINANCE can create/edit/delete budgets. */
+export function canManageBudgets(role: MemberRole): boolean {
+  return hasCapability(role, "manage_budgets");
+}

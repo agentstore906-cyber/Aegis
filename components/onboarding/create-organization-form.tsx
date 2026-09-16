@@ -8,20 +8,29 @@ import { Alert } from "@/components/ui/alert";
 
 const initialState: CreateOrganizationState = {};
 
-export function CreateOrganizationForm() {
+export function CreateOrganizationForm({
+  accountType = "TEAM",
+  placeholder = "Northstar Labs",
+}: {
+  accountType?: "TEAM" | "ENTERPRISE";
+  placeholder?: string;
+}) {
   const [state, formAction, pending] = useActionState(createOrganizationAction, initialState);
+  const label = accountType === "ENTERPRISE" ? "Company name" : "Team name";
 
   return (
     <form action={formAction} className="space-y-4" noValidate>
       {state.error && <Alert tone="danger">{state.error}</Alert>}
 
+      <input type="hidden" name="accountType" value={accountType} />
+
       <div>
-        <Label htmlFor="name">Organization name</Label>
+        <Label htmlFor="name">{label}</Label>
         <Input
           id="name"
           name="name"
           type="text"
-          placeholder="Northstar Labs"
+          placeholder={placeholder}
           autoComplete="organization"
           required
           minLength={2}

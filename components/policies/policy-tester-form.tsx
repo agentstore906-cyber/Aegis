@@ -109,6 +109,15 @@ export function PolicyTesterForm({ agents }: { agents: { id: string; name: strin
             <CardContent className="space-y-4">
               <p className="text-sm text-foreground">{state.result.reason}</p>
 
+              {state.result.alertId && (
+                <p className="text-sm text-muted-foreground">
+                  Raised a security alert.{" "}
+                  <Link href="/security" className="text-foreground hover:underline">
+                    View alerts
+                  </Link>
+                </p>
+              )}
+
               {state.result.matchedPermissionSnapshot && (
                 <div>
                   <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">

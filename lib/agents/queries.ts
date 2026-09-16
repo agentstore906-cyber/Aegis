@@ -68,11 +68,12 @@ export async function getAgentStats(organizationId: string) {
     _count: true,
   });
 
-  const stats = { total: 0, active: 0, paused: 0, needsAttention: 0, archived: 0 };
+  const stats = { total: 0, active: 0, paused: 0, stopped: 0, needsAttention: 0, archived: 0 };
   for (const row of grouped) {
     stats.total += row._count;
     if (row.status === "ACTIVE") stats.active = row._count;
     if (row.status === "PAUSED") stats.paused = row._count;
+    if (row.status === "STOPPED") stats.stopped = row._count;
     if (row.status === "NEEDS_ATTENTION") stats.needsAttention = row._count;
     if (row.status === "ARCHIVED") stats.archived = row._count;
   }
@@ -82,7 +83,7 @@ export async function getAgentStats(organizationId: string) {
 export async function getAgentBySlug(organizationId: string, slug: string) {
   const agent = await prisma.agent.findUnique({
     where: { organizationId_slug: { organizationId, slug } },
-    include: { tools: true },
+    include: { tools: true, connection: true },
   });
   if (!agent) return null;
 
@@ -95,9 +96,24 @@ export async function getAgentBySlugRaw(organizationId: string, slug: string) {
   return prisma.agent.findUnique({ where: { organizationId_slug: { organizationId, slug } } });
 }
 
+/**
+ * Same lookup, plus the connection's status — used only by the ingestion
+ * routes (POST /api/v1/events, /api/v1/evaluate) so a disconnected agent's
+ * connection can reject new activity without a second query. An agent with
+ * no AgentConnection row at all (created by the legacy manual form) has
+ * `connection: null` and is never blocked — see prisma/schema.prisma's note
+ * on AgentConnection.
+ */
+export async function getAgentBySlugForIngestion(organizationId: string, slug: string) {
+  return prisma.agent.findUnique({
+    where: { organizationId_slug: { organizationId, slug } },
+    include: { connection: { select: { status: true } } },
+  });
+}
+
 export async function getAgentsNeedingAttention(organizationId: string, limit = 5) {
   return prisma.agent.findMany({
-    where: { organizationId, status: { in: ["NEEDS_ATTENTION", "PAUSED"] } },
+    where: { organizationId, status: { in: ["NEEDS_ATTENTION", "PAUSED", "STOPPED"] } },
     orderBy: { updatedAt: "desc" },
     take: limit,
   });

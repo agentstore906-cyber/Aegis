@@ -14,6 +14,7 @@ import {
   MessageSquarePlus,
   Swords,
   CreditCard,
+  Sparkles,
 } from "lucide-react";
 
 import type { Capability } from "@/lib/rbac/capabilities";
@@ -37,6 +38,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Agents", href: "/agents", icon: Bot, status: "active" },
   { label: "Agent Arena", href: "/arena", icon: Swords, status: "active" },
   { label: "Activity", href: "/activity", icon: Activity, status: "active" },
+  { label: "Ask Aegis", href: "/ask", icon: Sparkles, status: "active" },
   { label: "Approvals", href: "/approvals", icon: CheckCircle2, status: "active" },
   { label: "Policies", href: "/policies", icon: ShieldCheck, status: "active" },
   { label: "Security", href: "/security", icon: ShieldAlert, status: "active" },

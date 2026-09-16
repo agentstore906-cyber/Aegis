@@ -4,6 +4,7 @@ import type {
   Environment,
   PolicyDecision,
   RiskLevel,
+  SecurityAlertSeverity,
 } from "@prisma/client";
 import type { SafeJsonValue } from "@/lib/policies/safe-context";
 
@@ -35,6 +36,7 @@ export type MatchedPolicySnapshot = {
   name: string;
   decision: PolicyDecision;
   priority: number;
+  severity: SecurityAlertSeverity;
 };
 
 export type PermissionSnapshot = {
@@ -58,6 +60,8 @@ export type PolicyEvaluationResult = {
   evaluationId: string;
   /** Set when this evaluation created an ApprovalRequest (decision === REQUIRE_APPROVAL). */
   approvalRequestId?: string;
+  /** Set when this evaluation created/updated a SecurityAlert (decision === ALERT). */
+  alertId?: string;
   traceId: string;
 };
 

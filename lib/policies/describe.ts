@@ -16,6 +16,7 @@ const DECISION_TEXT: Record<PolicyDecision, string> = {
   ALLOW: "allow it",
   REQUIRE_APPROVAL: "require approval",
   BLOCK: "block it",
+  ALERT: "allow it, and raise an alert",
 };
 
 function friendlyFieldName(field: string): string {
