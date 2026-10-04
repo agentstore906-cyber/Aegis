@@ -62,7 +62,7 @@ export default async function SecurityAlertDetailPage({ params }: { params: Prom
 
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{alert.type.replaceAll("_", " ")}</p>
+          <p className="text-sm font-medium text-muted-foreground">{alert.type.replaceAll("_", " ")}</p>
           <h1 className="mt-1 text-xl font-semibold tracking-tight text-foreground">{alert.title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             <Link href={`/agents/${alert.agent.slug}`} className="hover:underline">
@@ -92,7 +92,7 @@ export default async function SecurityAlertDetailPage({ params }: { params: Prom
           )}
           {alert.recommendedAction && (
             <div className="rounded-md border border-border bg-surface-muted px-3.5 py-2.5">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recommended action</p>
+              <p className="text-sm font-medium text-muted-foreground">Recommended action</p>
               <p className="mt-0.5 text-sm text-foreground">{alert.recommendedAction}</p>
             </div>
           )}

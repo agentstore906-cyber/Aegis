@@ -140,7 +140,7 @@ and P0-5 visible.
 | P2-5 | Retention execution, SSO/SAML, audit export to SIEM | Demand-driven (existing roadmap stance) |
 | P2-6 | Auto-graduated approvals ("approved 50× identically → suggest a policy") | Needs P1-2/P1-4 history |
 | P2-7 | Live model price feed for cost estimates | Low differentiation |
-| P2-8 | Agent Arena: add runtime-behavior categories from baselines | Marketing loop, after real baselines exist |
+| P2-8 | ~~Agent Arena: add runtime-behavior categories~~ — withdrawn, feature removed | n/a |
 | P2-9 | Learned (ML) anomaly signals, clearly labeled, as **additional** signals only | Only once labeled feedback (P1-4) exists in volume |
 
 ---

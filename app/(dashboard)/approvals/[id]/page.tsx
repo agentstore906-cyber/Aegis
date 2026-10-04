@@ -58,7 +58,7 @@ export default async function ApprovalDetailPage({
 
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="text-sm font-medium text-muted-foreground">
             Approval {request.status === "PENDING" ? "required" : request.status.toLowerCase()}
           </p>
           <h1 className="mt-1 text-xl font-semibold tracking-tight text-foreground">
@@ -107,7 +107,7 @@ export default async function ApprovalDetailPage({
           </dl>
 
           <div className="mt-5 border-t border-border pt-5">
-            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <p className="mb-1.5 text-sm font-medium text-muted-foreground">
               Triggered by
             </p>
             <p className="text-sm text-foreground">{request.reason}</p>

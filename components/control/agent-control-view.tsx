@@ -59,7 +59,7 @@ export function AgentControlPanel({ view, organizationName }: { view: AgentContr
             <Field label="Connector">{agent.connection ? lower(agent.connection) : "none (reports through the API)"}</Field>
           </dl>
           <div className="border-t border-border pt-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Identity protection</p>
+            <p className="text-sm font-medium text-muted-foreground">Identity protection</p>
             <p className="mt-1 text-foreground">{ASSURANCE_TEXT[agent.identity.assurance]}</p>
             {view.keys.length > 0 && (
               <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
@@ -100,7 +100,7 @@ export function AgentControlPanel({ view, organizationName }: { view: AgentContr
           )}
 
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Policies that apply</p>
+            <p className="text-sm font-medium text-muted-foreground">Policies that apply</p>
             {view.policies.length === 0 ? (
               <p className="text-muted-foreground">None.</p>
             ) : (
@@ -123,7 +123,7 @@ export function AgentControlPanel({ view, organizationName }: { view: AgentContr
           </div>
 
           <div className="border-t border-border pt-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Least-privilege review</p>
+            <p className="text-sm font-medium text-muted-foreground">Least-privilege review</p>
             <p className="mt-1 text-xs text-muted-foreground">{view.review.note}</p>
             {view.review.broadGrants.length === 0 && view.review.unusedGrants.length === 0 ? (
               <p className="mt-1 text-foreground">No broad or unused grants found.</p>
@@ -166,7 +166,7 @@ export function AgentControlPanel({ view, organizationName }: { view: AgentContr
             </Link>
           </p>
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Unusual this week</p>
+            <p className="text-sm font-medium text-muted-foreground">Unusual this week</p>
             {view.deviations.length === 0 ? (
               <p className="text-foreground">Nothing unusual recorded.</p>
             ) : (
@@ -215,7 +215,7 @@ export function AgentControlPanel({ view, organizationName }: { view: AgentContr
             Decisions returned this week: {decisions.ALLOW} allow · {decisions.ALERT} alert · {decisions.REQUIRE_APPROVAL} require approval · {decisions.BLOCK} block.
           </p>
           <div className="rounded-md border border-border bg-surface-muted px-3 py-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Enforcement coverage</p>
+            <p className="text-sm font-medium text-muted-foreground">Enforcement coverage</p>
             <p className="mt-1 text-foreground">
               {agent.coverage.reportedActions === 0
                 ? "No actions reported this week — there is no evidence of whether Aegis is in this agent's loop."
@@ -276,7 +276,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function ListBlock({ title, items }: { title: string; items: { key: string; count: number }[] }) {
   return (
     <div>
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+      <p className="text-sm font-medium text-muted-foreground">{title}</p>
       {items.length === 0 ? (
         <p className="text-muted-foreground">None reported.</p>
       ) : (

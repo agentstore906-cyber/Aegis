@@ -329,3 +329,8 @@ export async function getPolicyDashboardStats(organizationId: string) {
 
   return { last24h: stats, recentBlocked };
 }
+
+/** Active policies in the organization (read-only count for the Command Center). */
+export async function countActivePolicies(organizationId: string) {
+  return prisma.policy.count({ where: { organizationId, status: "ACTIVE" } });
+}

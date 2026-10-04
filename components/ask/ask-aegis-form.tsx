@@ -47,7 +47,7 @@ export function AskAegisForm() {
 
             {state.answer.evidence.length > 0 && (
               <div className="border-t border-border pt-4">
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Evidence</p>
+                <p className="mb-2 text-sm font-medium text-muted-foreground">Evidence</p>
                 <ul className="space-y-2">
                   {state.answer.evidence.map((item, i) => (
                     <li key={`${item.href}-${i}`}>
@@ -73,7 +73,7 @@ export function AskAegisForm() {
         </Card>
       ) : (
         <div>
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Try asking</p>
+          <p className="mb-2 text-sm font-medium text-muted-foreground">Try asking</p>
           <div className="flex flex-wrap gap-2">
             {ASK_AEGIS_EXAMPLE_QUESTIONS.map((q) => (
               <button

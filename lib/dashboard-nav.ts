@@ -15,7 +15,6 @@ import {
   Settings,
   Webhook,
   MessageSquarePlus,
-  Swords,
   CreditCard,
   Sparkles,
   ScanSearch,
@@ -44,71 +43,48 @@ export type NavItem = {
   countLabel?: string;
 };
 
-export type NavGroup = { id: string; label: string; items: NavItem[] };
+export type NavGroup = { id: string; label: string; items: NavItem[]; /** Collapsed behind a disclosure unless it holds the current page. */ collapsible?: boolean };
 
 /**
- * Information architecture: the order is the order of an operator's work —
- * see the state of things, look after the fleet, respond, govern, observe, administer.
+ * Information architecture. A short primary list names the product's core areas; everything else that is real
+ * lives under "More" (collapsed, but auto-opened when the current page is inside it) and in the command palette.
+ * Settings and Feedback sit at the bottom (NAV_UTILITY).
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
-    id: "command",
-    label: "Command",
+    id: "core",
+    label: "",
     items: [
       { label: "Command center", href: "/overview", icon: LayoutDashboard, status: "active" },
-      { label: "Control plane", href: "/control", icon: Network, status: "active", capability: "view_security" },
-    ],
-  },
-  {
-    id: "fleet",
-    label: "Fleet",
-    items: [
       { label: "Agents", href: "/agents", icon: Bot, status: "active" },
-      { label: "Agent Arena", href: "/arena", icon: Swords, status: "active" },
-      { label: "Risk scanner", href: "/risk-scan", icon: ScanSearch, status: "active", capability: "view_security" },
-    ],
-  },
-  {
-    id: "respond",
-    label: "Respond",
-    items: [
+      { label: "Risk", href: "/risk-control", icon: Gauge, status: "active", capability: "view_security" },
+      { label: "Policies", href: "/policies", icon: ShieldCheck, status: "active" },
       { label: "Approvals", href: "/approvals", icon: CheckCircle2, status: "active", count: "pendingApprovals", countLabel: "pending approvals" },
       { label: "Incidents", href: "/incidents", icon: Siren, status: "active", capability: "view_security", count: "openIncidents", countLabel: "open incidents" },
-      { label: "Security alerts", href: "/security", icon: ShieldAlert, status: "active", capability: "view_security", count: "openAlerts", countLabel: "open high or critical alerts" },
-      { label: "Risk control", href: "/risk-control", icon: Gauge, status: "active", capability: "view_security" },
-    ],
-  },
-  {
-    id: "govern",
-    label: "Govern",
-    items: [
-      { label: "Policies", href: "/policies", icon: ShieldCheck, status: "active" },
       { label: "Audit", href: "/audit", icon: ClipboardList, status: "active" },
     ],
   },
   {
-    id: "observe",
-    label: "Observe",
+    id: "more",
+    label: "More",
+    collapsible: true,
     items: [
       { label: "Activity", href: "/activity", icon: Activity, status: "active" },
+      { label: "Security alerts", href: "/security", icon: ShieldAlert, status: "active", capability: "view_security", count: "openAlerts", countLabel: "open high or critical alerts" },
+      { label: "Control plane", href: "/control", icon: Network, status: "active", capability: "view_security" },
+      { label: "Risk scanner", href: "/risk-scan", icon: ScanSearch, status: "active", capability: "view_security" },
       { label: "Costs", href: "/costs", icon: DollarSign, status: "active" },
-    ],
-  },
-  {
-    id: "platform",
-    label: "Platform",
-    items: [
+      { label: "Ask Aegis", href: "/ask", icon: Sparkles, status: "active" },
       { label: "Developers", href: "/developers", icon: Terminal, status: "active" },
       { label: "Integrations", href: "/integrations", icon: Webhook, status: "active" },
       { label: "Billing", href: "/settings/billing", icon: CreditCard, status: "active", capability: "view_billing" },
-      { label: "Settings", href: "/settings/organization", icon: Settings, status: "active" },
     ],
   },
 ];
 
-/** Utility links shown below the groups. */
+/** Pinned to the bottom of the sidebar. */
 export const NAV_UTILITY: NavItem[] = [
-  { label: "Ask Aegis", href: "/ask", icon: Sparkles, status: "active" },
+  { label: "Settings", href: "/settings/organization", icon: Settings, status: "active" },
   { label: "Feedback", href: "/feedback", icon: MessageSquarePlus, status: "active" },
 ];
 

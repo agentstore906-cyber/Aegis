@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { MemberRole } from "@prisma/client";
-import { Menu, X } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, X } from "lucide-react";
 
 import { Logo } from "@/components/ui/logo";
 import { NavList, type NavCounts } from "./nav-list";
@@ -11,11 +12,11 @@ import { NavList, type NavCounts } from "./nav-list";
 const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
- * Mobile navigation drawer, as a real modal dialog: it names itself, traps Tab,
+ * The navigation menu, opened from the Aegis logo at every screen size. It is a real modal dialog: it names itself, traps Tab,
  * closes on Escape / backdrop / navigation, locks page scroll while open, and
  * returns focus to the button that opened it.
  */
-export function MobileSidebar({ role, counts }: { role: MemberRole; counts?: NavCounts }) {
+export function NavDrawer({ role, counts, showUpgrade }: { role: MemberRole; counts?: NavCounts; showUpgrade?: boolean }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -69,17 +70,18 @@ export function MobileSidebar({ role, counts }: { role: MemberRole; counts?: Nav
   }, [open, close]);
 
   return (
-    <div className="lg:hidden">
+    <div>
       <button
         ref={openerRef}
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Open navigation"
+        aria-label="Aegis menu"
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="focus-ring flex size-9 items-center justify-center rounded-md border border-border"
+        className="focus-ring -ml-2 flex h-9 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface-muted"
       >
-        <Menu className="size-4" aria-hidden="true" />
+        <Logo />
+        <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
       </button>
 
       {open && (
@@ -89,19 +91,26 @@ export function MobileSidebar({ role, counts }: { role: MemberRole; counts?: Nav
             role="dialog"
             aria-modal="true"
             aria-label="Navigation"
-            className="aegis-enter flex h-full w-72 max-w-[85vw] flex-col border-r border-border bg-surface"
+            className="aegis-enter flex h-full w-72 max-w-[85vw] flex-col border-r border-border bg-surface-muted"
           >
-            <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+            <div className="flex h-14 shrink-0 items-center justify-between px-4">
               <Logo />
               <button type="button" onClick={close} aria-label="Close navigation" className="focus-ring flex size-8 items-center justify-center rounded-md border border-border">
                 <X className="size-4" aria-hidden="true" />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-2">
               <NavList role={role} counts={counts} onNavigate={close} />
             </div>
+            {showUpgrade && (
+              <div className="shrink-0 border-t border-border px-3 py-3">
+                <Link href="/upgrade" onClick={close} className="focus-ring block rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground">
+                  Upgrade
+                </Link>
+              </div>
+            )}
           </div>
-          <div aria-hidden="true" className="flex-1 bg-black/50" onClick={close} />
+          <div aria-hidden="true" className="flex-1 bg-black/30" onClick={close} />
         </div>
       )}
     </div>

@@ -37,7 +37,7 @@ export function SimulationResultView({ simulation }: { simulation: SimulationRes
 
         {simulation.risk && simulation.risk.reasons.length > 0 && (
           <div>
-            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Risk reasons</p>
+            <p className="mb-1 text-sm font-medium text-muted-foreground">Risk reasons</p>
             <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground">
               {simulation.risk.reasons.map((r) => (
                 <li key={r.rank}>{r.summary}</li>

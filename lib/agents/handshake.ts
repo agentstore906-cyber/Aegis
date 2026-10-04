@@ -79,7 +79,7 @@ export async function touchConnection(
   }
 
   if (options.activity) {
-    // lastActiveAt was previously never written; the agent list and Arena read it.
+    // lastActiveAt was previously never written; the agent list reads it.
     await prisma.agent.updateMany({
       where: { id: agent.id, OR: [{ lastActiveAt: null }, { lastActiveAt: { lt: new Date(now.getTime() - SEEN_WRITE_INTERVAL_MS) } }] },
       data: { lastActiveAt: now },

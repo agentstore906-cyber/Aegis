@@ -1,6 +1,6 @@
 -- Free AI Agent Risk Scanner (docs/AEGIS_FREE_RISK_SCANNER.md) — additive only.
 -- Creates two new isolated tables. Touches no existing table, column, enum or data.
--- No foreign keys by design (same isolation as Agent Arena). Pasted scanner input is never stored.
+-- No foreign keys by design (isolated from legacy tables). Pasted scanner input is never stored.
 
 -- CreateTable
 CREATE TABLE "risk_scans" (

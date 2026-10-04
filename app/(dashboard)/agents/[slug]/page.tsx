@@ -27,7 +27,7 @@ import { getAgentControlView } from "@/lib/control/agent-view";
 import { getCostPerSuccessfulTaskForAgent } from "@/lib/costs/queries";
 import type { ConnectorCapabilities } from "@/lib/connectors/types";
 
-import { PageHeader } from "@/components/dashboard/page-header";
+import { StateLine, type PanelTone } from "@/components/console/primitives";
 import { AgentTabs } from "@/components/agents/agent-tabs";
 import { AgentStatusToggle } from "@/components/agents/agent-status-toggle";
 import {
@@ -56,6 +56,15 @@ import { TrustDetails, TrustSummary } from "@/components/trust/trust-view";
 import { RunGraphView, RunListView } from "@/components/graph/action-graph-view";
 import { AgentControlPanel } from "@/components/control/agent-control-view";
 export const metadata: Metadata = { title: "Agent" };
+
+const CONNECTION_TONE: Record<string, PanelTone> = {
+  CONNECTED: "safe",
+  WAITING: "neutral",
+  CREDENTIAL_VERIFIED: "neutral",
+  NOT_SEEN_RECENTLY: "warning",
+  ERROR: "warning",
+  REVOKED: "blocked",
+};
 
 export default async function AgentDetailPage({
   params,
@@ -127,8 +136,7 @@ export default async function AgentDetailPage({
   const costPerSuccessfulTaskCents = tab === "costs" ? await getCostPerSuccessfulTaskForAgent(organization.id, agent.id) : null;
 
   // Connection, monitoring and decision state, derived from evidence (never from a stored click).
-  const connectionSnapshot: ConnectionSnapshotJson | null =
-    tab === "overview" ? (JSON.parse(JSON.stringify(await getAgentConnectionSnapshot(organization.id, agent.slug))) as ConnectionSnapshotJson | null) : null;
+  const connectionSnapshot: ConnectionSnapshotJson | null = JSON.parse(JSON.stringify(await getAgentConnectionSnapshot(organization.id, agent.slug))) as ConnectionSnapshotJson | null;
 
   const connectionView =
     tab === "overview" && agent.connection
@@ -159,11 +167,16 @@ export default async function AgentDetailPage({
   return (
     <div>
       {(tab === "overview" || tab === "activity") && <LiveActivityRefresh />}
-      <PageHeader
-        title={agent.name}
-        description={agent.description ?? undefined}
-        action={
-          canManageThisAgent && (
+      <header className="mb-6">
+        <Link href="/agents" className="focus-ring rounded-sm text-sm text-muted-foreground hover:text-foreground">
+          Agents
+        </Link>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="truncate text-3xl font-semibold text-foreground">{agent.name}</h1>
+            {agent.description && <p className="mt-1 max-w-2xl text-muted-foreground">{agent.description}</p>}
+          </div>
+          {canManageThisAgent && (
             <div className="flex flex-wrap items-center gap-2">
               <AgentStatusToggle slug={agent.slug} status={agent.status} />
               <ButtonLink href={`/agents/${agent.slug}/edit`} variant="secondary" size="sm">
@@ -171,23 +184,26 @@ export default async function AgentDetailPage({
                 Edit
               </ButtonLink>
             </div>
-          )
-        }
-      />
-
-      <div className="mb-6 flex flex-wrap items-center gap-2">
-        <AgentStatusBadge status={agent.status} />
-        <RiskBadge level={agent.riskLevel} />
-        <Badge tone="neutral">{agent.owner}</Badge>
-        <Badge tone="neutral">{agent.environment.charAt(0) + agent.environment.slice(1).toLowerCase()}</Badge>
-        <span className="text-xs text-muted-foreground">
-          {connectionSnapshot?.view.lastSeenAt
-            ? `Last seen ${formatRelativeTime(new Date(connectionSnapshot.view.lastSeenAt))}`
-            : agent.lastActiveAt
-              ? `Last active ${formatRelativeTime(agent.lastActiveAt)}`
-              : "Never seen"}
-        </span>
-      </div>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          {connectionSnapshot && (
+            <StateLine tone={CONNECTION_TONE[connectionSnapshot.view.state]}>
+              <span className="font-medium">{connectionSnapshot.view.stateLabel}</span>
+            </StateLine>
+          )}
+          <span className="text-muted-foreground">{agent.environment.charAt(0) + agent.environment.slice(1).toLowerCase()}</span>
+          {agent.status !== "ACTIVE" && <AgentStatusBadge status={agent.status} />}
+          <RiskBadge level={agent.riskLevel} />
+          <span className="text-muted-foreground">
+            {connectionSnapshot?.view.lastSeenAt
+              ? `Last seen ${formatRelativeTime(new Date(connectionSnapshot.view.lastSeenAt))}`
+              : agent.lastActiveAt
+                ? `Last active ${formatRelativeTime(agent.lastActiveAt)}`
+                : "Never seen"}
+          </span>
+        </div>
+      </header>
 
       <AgentTabs slug={agent.slug} active={tab} />
 
@@ -204,7 +220,7 @@ export default async function AgentDetailPage({
 
       {tab === "overview" && (
         <div className="grid gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
+          <Card className="self-start lg:col-span-2">
             <CardHeader>
               <CardTitle>Overview</CardTitle>
             </CardHeader>
@@ -222,7 +238,7 @@ export default async function AgentDetailPage({
               </dl>
 
               <div className="mt-5 border-t border-border pt-5">
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="mb-2 text-sm font-medium text-muted-foreground">
                   Tools
                 </p>
                 {agent.tools.length === 0 ? (
@@ -240,7 +256,7 @@ export default async function AgentDetailPage({
 
               {permissionSummary && (
                 <div className="mt-5 border-t border-border pt-5">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <p className="mb-2 text-sm font-medium text-muted-foreground">
                     Permissions
                   </p>
                   <div className="flex flex-wrap items-center gap-4 text-sm">
@@ -543,7 +559,7 @@ export default async function AgentDetailPage({
             <Card>
               <CardContent className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <p className="text-sm font-medium text-muted-foreground">
                     Spend this month
                   </p>
                   <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
@@ -555,7 +571,7 @@ export default async function AgentDetailPage({
             </Card>
             <Card>
               <CardContent>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="text-sm font-medium text-muted-foreground">
                   Cost per successful task
                 </p>
                 <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">

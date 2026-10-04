@@ -77,7 +77,7 @@ export function PolicyForm({
       {state.error && <Alert tone="danger">{state.error}</Alert>}
 
       <div className="space-y-5 rounded-lg border border-border bg-surface p-5">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">General</p>
+        <p className="text-sm font-medium text-muted-foreground">General</p>
 
         <div>
           <Label htmlFor="name">Name</Label>
@@ -164,7 +164,7 @@ export function PolicyForm({
       </div>
 
       <div className="space-y-5 rounded-lg border border-border bg-surface p-5">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Scope</p>
+        <p className="text-sm font-medium text-muted-foreground">Scope</p>
 
         <div className="grid gap-5 sm:grid-cols-2">
           <div>
@@ -248,7 +248,7 @@ export function PolicyForm({
       </div>
 
       <div className="space-y-3 rounded-lg border border-border bg-surface p-5">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Conditions</p>
+        <p className="text-sm font-medium text-muted-foreground">Conditions</p>
         <ConditionEditor initial={editableConditions} onChange={setEditableConditions} />
       </div>
 

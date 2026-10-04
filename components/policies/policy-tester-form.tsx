@@ -174,7 +174,7 @@ export function PolicyTesterForm({ agents, canRecord }: { agents: { id: string; 
 
               {state.result.matchedPermissionSnapshot && (
                 <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <p className="mb-1 text-sm font-medium text-muted-foreground">
                     Baseline permission
                   </p>
                   <p className="font-mono text-xs text-foreground">
@@ -185,7 +185,7 @@ export function PolicyTesterForm({ agents, canRecord }: { agents: { id: string; 
               )}
 
               <div>
-                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="mb-1 text-sm font-medium text-muted-foreground">
                   Matched policies
                 </p>
                 {state.result.matchedPolicySnapshots.length === 0 ? (

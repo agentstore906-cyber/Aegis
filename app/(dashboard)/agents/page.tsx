@@ -3,6 +3,7 @@ import { Bot, Plus } from "lucide-react";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { listAgents } from "@/lib/agents/queries";
+import { getAgentListSignals } from "@/lib/agents/list-signals";
 import { canManageAgents } from "@/lib/agents/authorization";
 import { agentFiltersSchema } from "@/lib/validation/agent";
 
@@ -33,7 +34,12 @@ export default async function AgentsPage({
     page: typeof raw.page === "string" ? raw.page : undefined,
   });
 
-  const { agents, total, pageCount } = await listAgents(organization.id, filters);
+  const { agents: rows, total, pageCount } = await listAgents(organization.id, filters);
+  const signals = await getAgentListSignals(
+    organization.id,
+    rows.map((a) => a.id)
+  );
+  const agents = rows.map((a) => ({ ...a, signals: signals.get(a.id) }));
 
   const buildHref = (page: number) => {
     const params = new URLSearchParams();
@@ -68,11 +74,11 @@ export default async function AgentsPage({
       {agents.length === 0 ? (
         <EmptyState
           icon={Bot}
-          title={hasFilters ? "No agents match your filters" : "No agents connected yet."}
+          title={hasFilters ? "No agents match your filters" : "No agents connected"}
           description={
             hasFilters
               ? "Try adjusting your search or filters."
-              : "Connect your first AI agent to start monitoring runs, costs and activity."
+              : "Connect your first AI agent to begin monitoring behavior and enforcing policies."
           }
           action={
             !hasFilters && (
@@ -80,21 +86,18 @@ export default async function AgentsPage({
                 {canManage && (
                   <ButtonLink href="/agents/new" size="sm">
                     <Plus className="size-4" aria-hidden="true" />
-                    Connect Agent
+                    Connect agent
                   </ButtonLink>
                 )}
-                <ButtonLink href="/demo" variant="secondary" size="sm">
-                  Explore Demo
-                </ButtonLink>
               </div>
             )
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-surface">
+        <>
           <AgentsTable agents={agents} />
           <Pagination page={filters.page} pageCount={pageCount} buildHref={buildHref} />
-        </div>
+        </>
       )}
     </div>
   );

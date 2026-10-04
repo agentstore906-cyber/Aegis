@@ -1,69 +1,41 @@
-import Link from "next/link";
 import type { MemberRole } from "@prisma/client";
-import { Sparkles } from "lucide-react";
 
-import { MobileSidebar } from "@/components/dashboard/mobile-sidebar";
+import { NavDrawer } from "@/components/dashboard/nav-drawer";
 import type { NavCounts } from "@/components/dashboard/nav-list";
 import { PaletteHost } from "@/components/dashboard/palette-host";
 import { UserMenu } from "@/components/dashboard/user-menu";
-import { Badge } from "@/components/ui/badge";
-import { ButtonLink } from "@/components/ui/button";
-import { canViewBilling, canManageBilling } from "@/lib/billing/authorization";
-import { DEFAULT_PLAN_ID } from "@/lib/billing/plans";
+import { canViewBilling } from "@/lib/billing/authorization";
 import { paletteCommands } from "@/lib/dashboard-commands";
 
+/**
+ * The whole top bar: the Aegis menu (every destination, hidden until asked for), the current workspace, search,
+ * and the account. There is no permanent navigation anywhere else.
+ */
 export function Topbar({
   organizationName,
-  plan,
   role,
   userName,
   userEmail,
   counts,
 }: {
   organizationName: string;
-  plan: string;
   role: MemberRole;
   userName: string;
   userEmail: string;
   counts?: NavCounts;
 }) {
-  const viewBilling = canViewBilling(role);
-  const showUpgrade = canManageBilling(role) && plan === DEFAULT_PLAN_ID;
-
-  const planBadge = (
-    <Badge tone="neutral" className="shrink-0 capitalize">
-      {plan}
-    </Badge>
-  );
-
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4 sm:px-6">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between bg-background px-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
-        <MobileSidebar role={role} counts={counts} />
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-medium text-foreground">{organizationName}</span>
-          {viewBilling ? (
-            <Link
-              href="/settings/billing"
-              className="focus-ring shrink-0 rounded-md"
-              aria-label={`Current plan: ${plan}. Open billing`}
-            >
-              {planBadge}
-            </Link>
-          ) : (
-            planBadge
-          )}
-        </div>
+        <NavDrawer role={role} counts={counts} showUpgrade={canViewBilling(role)} />
+        <span aria-hidden="true" className="hidden h-4 w-px bg-border sm:block" />
+        <span className="hidden truncate text-sm text-muted-foreground sm:inline" title="Current workspace">
+          {organizationName}
+        </span>
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-1">
         <PaletteHost commands={paletteCommands(role)} />
-        {showUpgrade && (
-          <ButtonLink href="/upgrade" size="sm">
-            <Sparkles className="size-4" aria-hidden="true" />
-            Upgrade
-          </ButtonLink>
-        )}
         <UserMenu name={userName} email={userEmail} />
       </div>
     </header>

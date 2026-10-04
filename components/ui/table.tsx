@@ -11,7 +11,7 @@ export function Table({ className, ...props }: React.TableHTMLAttributes<HTMLTab
 export function Thead({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
   return (
     <thead
-      className={cn("border-b border-border bg-surface-muted text-left", className)}
+      className={cn("border-b border-border text-left", className)}
       {...props}
     />
   );
@@ -22,7 +22,7 @@ export function Th({ className, ...props }: React.ThHTMLAttributes<HTMLTableCell
     <th
       scope="col"
       className={cn(
-        "px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground",
+        "px-4 py-2.5 text-sm font-medium text-muted-foreground",
         className
       )}
       {...props}

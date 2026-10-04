@@ -72,6 +72,8 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Dev server only: lets a browser that reaches it as 127.0.0.1 hydrate (no effect on production builds).
+  allowedDevOrigins: ["127.0.0.1"],
   turbopack: {
     root: path.resolve(__dirname),
   },

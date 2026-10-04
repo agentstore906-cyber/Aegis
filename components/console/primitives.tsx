@@ -55,12 +55,12 @@ export function Panel({
 }) {
   const labelId = id ? `${id}-label` : undefined;
   return (
-    <section id={id} aria-labelledby={labelId} className={cn("rounded-lg border border-border bg-surface", ACCENT[tone], className)}>
-      <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+    <section id={id} aria-labelledby={labelId} className={cn("rounded-xl border border-border bg-surface", ACCENT[tone], className)}>
+      <header className="flex items-center justify-between gap-3 px-4 pb-1 pt-3.5">
         <SectionLabel id={labelId}>{label}</SectionLabel>
         {action}
       </header>
-      <div className={flush ? "" : "px-4 py-4"}>{children}</div>
+      <div className={flush ? "border-t border-border mt-2.5" : "px-4 pb-4 pt-2"}>{children}</div>
     </section>
   );
 }
@@ -108,13 +108,13 @@ export function Metric({
   const body = (
     <>
       <p className="section-label">{label}</p>
-      <p className={cn("num mt-1.5 text-2xl font-semibold leading-none tracking-tight", VALUE_TONE[tone])}>{value}</p>
+      <p className={cn("num mt-1 text-3xl font-semibold leading-none tracking-tight", VALUE_TONE[tone])}>{value}</p>
       {caption && <p className="mt-1.5 text-xs text-muted-foreground">{caption}</p>}
     </>
   );
-  const base = "block rounded-lg border border-border bg-surface px-4 py-3.5";
+  const base = "block rounded-xl px-1 py-2";
   return href ? (
-    <Link href={href} className={cn(base, "focus-ring transition-colors hover:border-border-strong hover:bg-surface-muted", className)}>
+    <Link href={href} className={cn(base, "focus-ring -mx-1 px-2 transition-colors hover:bg-surface-muted", className)}>
       {body}
     </Link>
   ) : (

@@ -27,7 +27,7 @@ Navigation is grouped by the order of an operator's work (`lib/dashboard-nav.ts`
 | Group | Items |
 |---|---|
 | Command | Command center, Control plane |
-| Fleet | Agents, Agent Arena |
+| Fleet | Agents (Agent Arena removed Oct 2026) |
 | Respond | Approvals, Incidents, Security alerts, Risk control |
 | Govern | Policies, Audit |
 | Observe | Activity, Costs |
@@ -102,7 +102,7 @@ parallel and skips security queries for roles that cannot see them.
 ## 9. Known limitations
 
 - **Not live.** Updates come from periodic server re-render; the UI says "auto-refresh", never "live".
-- **Risk Scanner:** added later (Oct 2026) as a separate feature — see `docs/AEGIS_FREE_RISK_SCANNER.md` (nav item "Risk scanner", `/risk-scan`). Agent Arena remains separate.
+- **Risk Scanner:** added later (Oct 2026) as a separate feature — see `docs/AEGIS_FREE_RISK_SCANNER.md` (nav item "Risk scanner", `/risk-scan`).
 - **Partial pass on sections 4–9.** Badges and wording are consistent everywhere, but the agent header, decision/incident
   detail view, policy "rule sentence" view, approval center and audit pages were **not** individually redesigned beyond that.
 - Dark theme covers the dashboard only; marketing, auth and demo are intentionally unchanged.

@@ -39,7 +39,7 @@ export function OnboardingWizard() {
 
   return (
     <div>
-      <p className="mb-4 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="mb-4 text-center text-sm font-medium text-muted-foreground">
         Step {stepNumber} of 3
       </p>
 

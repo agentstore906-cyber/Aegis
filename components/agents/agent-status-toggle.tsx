@@ -57,7 +57,7 @@ export function AgentStatusToggle({ slug, status }: { slug: string; status: Agen
             confirmLabel="Stop agent"
             onConfirm={() => setStatus("STOPPED")}
             trigger={
-              <Button variant="destructive" size="sm" type="button" disabled={isPending}>
+              <Button variant="secondary" size="sm" type="button" disabled={isPending} className="text-danger hover:bg-danger-bg">
                 <Octagon className="size-3.5" aria-hidden="true" />
                 Stop
               </Button>

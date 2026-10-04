@@ -139,7 +139,7 @@ help control", never "prevents".
 ## 6. Database
 
 Migration `20261011120000_free_risk_scanner` (additive; no existing table touched; verified with
-`prisma migrate diff` = no drift). Scalar ids only, no foreign keys (same isolation as Agent Arena).
+`prisma migrate diff` = no drift). Scalar ids only, no foreign keys (isolated from legacy tables).
 
 `risk_scans`: `id` (128-bit random token, app-generated), `sessionHash`, `userId?`, `organizationId?`,
 `connectedAgentId?`, `agentType`, `agentLabel?`, `capabilities`, `autonomy`, `controls`, `inputSignals?`
@@ -243,7 +243,7 @@ workspaces without one). `landing_cta_clicked` keeps using the existing stub wit
 |---|---|
 | 2 Agent configuration analysis | Extend `pasted.ts` with structured parsers (MCP / tool-definition JSON); signals already feed `Ctx` as inferred capabilities. |
 | 3 Log analysis | New signal sources behind the same `PastedSignalSummary` contract. |
-| 4 Connected live scanning | `RiskScan.connectedAgentId` + the existing agent permissions/policies (as Agent Arena already reads them) can supply *observed* evidence in place of answers. |
+| 4 Connected live scanning | `RiskScan.connectedAgentId` + the existing agent permissions/policies can supply *observed* evidence in place of answers. |
 | 5 Continuous monitoring | Re-run on a schedule; `diffScans` and the history UI are the trend substrate. |
 | 6 Policy recommendations | `Finding.mitigations` + `aegis.controls` map directly to policy templates. |
 | 7 Continuous enforcement | Findings → `risk-control` settings via the existing risk-control plan. |

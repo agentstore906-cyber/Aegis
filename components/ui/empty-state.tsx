@@ -33,7 +33,7 @@ export function EmptyState({
     <div
       className={cn(
         "flex flex-col items-center justify-center gap-3 text-center",
-        compact ? "px-4 py-8" : "rounded-lg border border-dashed border-border px-6 py-16"
+        compact ? "px-4 py-8" : "rounded-xl border border-border bg-surface-muted/50 px-6 py-16"
       )}
     >
       <div className="flex size-10 items-center justify-center rounded-full border border-border bg-surface-muted">

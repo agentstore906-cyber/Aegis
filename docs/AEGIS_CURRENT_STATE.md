@@ -122,7 +122,6 @@ Status legend used throughout:
 | **Activity feed / detail** | **Implemented** | Filters, live refresh. Trace shown as a raw ID; **no trace or tree view**. Approval and alert detail pages do pull related events by `traceId`, which is the start of an incident view. |
 | **Policy tester / evaluations log** | **Implemented** | Dashboard tester calls the real engine (and persists real evaluations). |
 | **Ask Aegis** | **Implemented (deterministic)** | Regex intent router over real queries. No LLM. Honest "not enough evidence" fallback. |
-| **Agent Arena** (benchmark scorecard) | **Implemented** | 19 fixed probe scenarios run against the agent's real permissions and policies using the pure resolver (no side effects), plus observed telemetry. Public share links and challenge attribution. This is the closest thing in the repo to a "risk scanner": it scans **configuration posture**, not runtime behavior. |
 | **"AI Agent Risk Scanner"** | **Implemented (Oct 2026, local, not deployed)** | Free, anonymous-first self-assessment at `/scan` with a deterministic, explainable risk engine, private report, public share page, claim-after-signup into `/risk-scan`. See `docs/AEGIS_FREE_RISK_SCANNER.md`. It scores a *described* configuration; it does not inspect a live agent (that is Phase 4 of its roadmap). |
 | **Retention** | **Schema-only** | `*RetentionDays` columns and a settings form; nothing deletes data. |
 | **SSO** | **Schema-only** | `ssoEnabled` / `ssoProvider`. |

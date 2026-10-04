@@ -110,7 +110,7 @@ export default function CommandPalette({ commands, onClose }: { commands: Palett
 
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[12vh]" onKeyDown={onKeyDown}>
-      <div aria-hidden="true" className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div aria-hidden="true" className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
       <div role="dialog" aria-modal="true" aria-label="Command palette" className="aegis-enter relative w-full max-w-xl overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
         <div className="flex items-center gap-2.5 border-b border-border px-4">
           <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />

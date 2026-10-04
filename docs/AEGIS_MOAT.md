@@ -89,7 +89,7 @@ place), so it should follow from the value of 1–4, not substitute for it.
 - **Dashboards and charts.** Commodity.
 - **Connector count.** Necessary for adoption, copyable, and it doesn't
   compound.
-- **Agent Arena public scores.** A good acquisition loop, not retention.
+- **Agent Arena public scores (feature since removed, see docs/AEGIS_AGENT_ARENA_REMOVAL.md).** A good acquisition loop, not retention.
   It scores configuration, which a competitor can replicate.
 - **"AI-powered" anomaly detection.** Unexplainable scores erode the trust
   that moats 2–4 depend on. Deterministic and statistical first.

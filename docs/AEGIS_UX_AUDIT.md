@@ -1,5 +1,7 @@
 # Aegis UX Audit
 
+> Historical: this audit predates the removal of Agent Arena (`docs/AEGIS_AGENT_ARENA_REMOVAL.md`); its Arena mentions describe a feature that no longer exists.
+
 Written before the redesign (command-center work). It inspects the real frontend as it was at the end of P8, so the redesign answers actual problems rather than a template. Companion document, written after: `docs/AEGIS_UI_IMPLEMENTATION.md`.
 
 ## 1. What exists

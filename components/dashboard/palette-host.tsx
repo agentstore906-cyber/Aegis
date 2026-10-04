@@ -46,11 +46,10 @@ export function PaletteHost({ commands }: { commands: PaletteCommand[] }) {
         aria-haspopup="dialog"
         aria-keyshortcuts="Control+K Meta+K"
         aria-label="Search or jump to…"
-        className="focus-ring flex h-9 items-center gap-2 rounded-md border border-border bg-surface-muted px-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground sm:min-w-56"
+        title={`Search (${mac ? "⌘K" : "Ctrl K"})`}
+        className="focus-ring flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
       >
-        <Search className="size-4" aria-hidden="true" />
-        <span className="hidden flex-1 text-left sm:block">Search or jump to…</span>
-        <kbd className="num hidden rounded border border-border px-1.5 py-0.5 text-[10px] sm:block">{mac ? "⌘K" : "Ctrl K"}</kbd>
+        <Search className="size-[18px]" aria-hidden="true" />
       </button>
       {open && <CommandPalette commands={commands} onClose={close} />}
     </>

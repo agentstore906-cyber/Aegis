@@ -29,19 +29,18 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label="Account menu"
-        className="focus-ring flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-muted"
+        className="focus-ring flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-muted"
       >
         <span className="flex size-7 items-center justify-center rounded-full bg-foreground text-xs font-medium text-background">
           {initial}
         </span>
-        <span className="hidden text-sm text-foreground sm:inline">{name || email}</span>
-        <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
       </button>
 
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full mt-2 w-56 rounded-md border border-border bg-surface py-1 shadow-lg"
+          className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-border bg-surface py-1 shadow-[var(--shadow-pop)]"
         >
           <div className="border-b border-border px-3 py-2">
             <p className="truncate text-sm font-medium text-foreground">{name}</p>

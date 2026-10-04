@@ -24,29 +24,33 @@ export function ActivityRow({
   status: ActivityStatus;
   source?: string | null;
 }) {
+  const what = description || action.replaceAll(/[._]/g, " ");
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="w-20 shrink-0 text-xs text-muted-foreground" title={timestamp.toISOString()}>
-          {formatRelativeTime(timestamp)}
-        </span>
-        {agentName && agentSlug && (
-          <Link
-            href={`/agents/${agentSlug}`}
-            className="focus-ring w-32 shrink-0 truncate rounded-sm font-medium text-foreground hover:underline"
-          >
-            {agentName}
-          </Link>
-        )}
-        <div className="min-w-0">
-          <p className="truncate text-foreground">
-            {description || action.replaceAll(/[._]/g, " ")}
-            {toolName && <span className="ml-1.5 text-xs text-muted-foreground">via {toolName}</span>}
+    <div className="flex items-start justify-between gap-4 px-4 py-3.5">
+      <div className="min-w-0">
+        <p className="text-foreground">
+          {agentName && agentSlug ? (
+            <Link href={`/agents/${agentSlug}`} className="focus-ring rounded-sm font-medium hover:underline">
+              {agentName}
+            </Link>
+          ) : null}
+          {agentName ? <span className="text-muted-foreground"> requested </span> : null}
+          <span className="font-medium">{what}</span>
+        </p>
+        {(resource || toolName) && (
+          <p className="mt-0.5 truncate text-sm text-muted-foreground">
+            {resource}
+            {resource && toolName ? " · " : ""}
+            {toolName && <>via {toolName}</>}
           </p>
-          {resource && <p className="truncate text-xs text-muted-foreground">{resource}</p>}
-        </div>
+        )}
+        <p className="mt-0.5 text-sm text-muted-foreground" title={timestamp.toISOString()}>
+          {formatRelativeTime(timestamp)}
+        </p>
       </div>
-      <ActivityStatusBadge status={status} source={source} />
+      <div className="shrink-0 pt-0.5">
+        <ActivityStatusBadge status={status} source={source} />
+      </div>
     </div>
   );
 }

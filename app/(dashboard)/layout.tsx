@@ -2,7 +2,6 @@ import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { getNavCounts } from "@/lib/dashboard-nav-counts";
 import { claimScansForSession } from "@/lib/scanner/service";
 import { getSessionHash } from "@/lib/scanner/session";
-import { Sidebar } from "@/components/dashboard/sidebar";
 import { Topbar } from "@/components/dashboard/topbar";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -20,24 +19,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="aegis-console flex min-h-screen bg-background text-foreground">
+    <div className="aegis-console flex min-h-screen flex-col bg-background text-foreground">
       <a href="#main" className="skip-link">
         Skip to main content
       </a>
-      <Sidebar role={role} counts={counts} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar
-          organizationName={organization.name}
-          plan={organization.plan}
-          role={role}
-          userName={user.name ?? user.email}
-          userEmail={user.email}
-          counts={counts}
-        />
-        <main id="main" tabIndex={-1} className="flex-1 bg-background px-4 py-6 outline-none sm:px-6 lg:px-8">
-          {children}
-        </main>
-      </div>
+      <Topbar organizationName={organization.name} role={role} userName={user.name ?? user.email} userEmail={user.email} counts={counts} />
+      <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col bg-background px-4 pb-10 pt-4 outline-none sm:px-6 lg:px-10">
+        <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col">{children}</div>
+      </main>
     </div>
   );
 }

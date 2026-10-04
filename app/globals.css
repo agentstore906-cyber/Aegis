@@ -121,56 +121,60 @@ body {
 /* ---------------------------------------------------------------------------
  * AEGIS CONSOLE THEME
  *
- * The authenticated product ("command center") is dark-first. It is applied by
- * REDEFINING the same semantic tokens the whole UI already uses, scoped to the
- * .aegis-console wrapper in app/(dashboard)/layout.tsx — so marketing, auth and
- * the public demo are untouched and no component hard-codes a color.
+ * The authenticated product is a calm, white workspace. It is applied by REDEFINING the same
+ * semantic tokens the whole UI already uses, scoped to the .aegis-console wrapper in
+ * app/(dashboard)/layout.tsx — so marketing, auth and the public demo are untouched and no
+ * component hard-codes a color.
  *
- * Color carries STATE, never decoration:
- *   success  SAFE / allowed          warning   caution / flagged / medium risk
- *   danger   BLOCKED / high risk     approval  awaiting a human decision
- *   info     system / alert          brand     the single system accent
- * Contrast (WCAG): body text ~15:1, muted text ~6:1, every state color >= 5.5:1
- * on its own tinted background.
+ * Ink (near-black) is the one interface accent: primary buttons, focus, active navigation.
+ * Color is reserved for STATE, never decoration:
+ *   success  allowed / healthy       warning   caution / medium risk
+ *   danger   blocked / high risk     approval  awaiting a human decision
+ *   info     informational           risk      elevated risk
+ * Contrast (WCAG AA): body text ~19:1, muted text >= 5.4:1, state colors >= 4.5:1 on their tints.
  * ------------------------------------------------------------------------- */
 .aegis-console {
-  color-scheme: dark;
+  color-scheme: light;
 
-  --background: #0a0b0f;
-  --surface: #101218;
-  --surface-muted: #161923;
-  --foreground: #e7e9ee;
-  --muted: #8b93a7;
-  --muted-foreground: #8b93a7;
-  --border: #1f2430;
-  --border-strong: #2f3647;
+  --background: #ffffff;
+  --surface: #ffffff;
+  --surface-muted: #f7f7f8;
+  --foreground: #0d0d0f;
+  --muted: #656a75;
+  --muted-foreground: #656a75;
+  --border: #ececef;
+  --border-strong: #d8d8de;
 
-  --brand: #6ea8fe;
-  --brand-foreground: #0a0b0f;
+  --brand: #0d0d0f;
+  --brand-foreground: #ffffff;
 
-  --success: #3ecf8e;
-  --success-bg: #0f2a20;
-  --success-border: #1d4a37;
+  --success: #15803d;
+  --success-bg: #f0fdf4;
+  --success-border: #bbf7d0;
 
-  --warning: #e5a93a;
-  --warning-bg: #2a2110;
-  --warning-border: #4d3c17;
+  --warning: #a16207;
+  --warning-bg: #fffbeb;
+  --warning-border: #fde68a;
 
-  --danger: #f0616d;
-  --danger-bg: #2c1217;
-  --danger-border: #54202a;
+  --danger: #c81e1e;
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
 
-  --info: #6ea8fe;
-  --info-bg: #101f36;
-  --info-border: #1d3a63;
+  --info: #1d4ed8;
+  --info-bg: #eff6ff;
+  --info-border: #bfdbfe;
 
-  --risk: #f2994a;
-  --risk-bg: #2b1a0e;
-  --risk-border: #55331a;
+  --risk: #c2410c;
+  --risk-bg: #fff7ed;
+  --risk-border: #fed7aa;
 
-  --approval: #b392f0;
-  --approval-bg: #1d1730;
-  --approval-border: #3a2d66;
+  --approval: #6d28d9;
+  --approval-bg: #f5f3ff;
+  --approval-border: #ddd6fe;
+
+  /* Elevation is whisper-quiet: a hairline, never a glow. */
+  --shadow-sm: 0 1px 2px rgb(13 13 15 / 0.04);
+  --shadow-pop: 0 8px 30px rgb(13 13 15 / 0.12), 0 0 0 1px rgb(13 13 15 / 0.05);
 
   /* Motion: short, purposeful, and removed by prefers-reduced-motion (rule above). */
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -179,29 +183,32 @@ body {
 
   background: var(--background);
   color: var(--foreground);
+  font-size: 15px;
+  line-height: 1.55;
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+}
+
+.aegis-console h1,
+.aegis-console h2,
+.aegis-console h3 {
+  letter-spacing: -0.02em;
 }
 
 .aegis-console ::selection {
-  background: var(--brand);
-  color: var(--brand-foreground);
+  background: #dbeafe;
+  color: var(--foreground);
 }
 
-/* Native form controls and scrollbars follow the dark scheme. */
-.aegis-console input,
-.aegis-console select,
-.aegis-console textarea {
-  color-scheme: dark;
-}
 .aegis-console * {
   scrollbar-color: var(--border-strong) transparent;
 }
 
-/* One focus treatment everywhere: a crisp ring with a soft halo. */
+/* One focus treatment everywhere: a crisp ink ring. */
 .aegis-console .focus-ring:focus-visible,
 .aegis-console :focus-visible {
-  outline: 2px solid var(--brand);
+  outline: 2px solid var(--foreground);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 22%, transparent);
 }
 
 /* Identifiers and figures: tabular, so columns of numbers align and do not jitter. */
@@ -212,11 +219,11 @@ body {
 
 /* Section labels and the single page-enter transition. */
 .section-label {
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   line-height: 1rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--muted-foreground);
 }
 @keyframes aegis-enter {
