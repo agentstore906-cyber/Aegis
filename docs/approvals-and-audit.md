@@ -112,13 +112,44 @@ committed. This is exercised directly in
 
 ## Expiration
 
-`ApprovalRequest.expiresAt` is optional and currently never set by any
-code path (no policy-level TTL exists yet) — it exists so the model, the
-lazy-expiry logic, and the tests are ready the moment a TTL is introduced.
-There is no scheduled job: a `PENDING` request past `expiresAt` is flipped
-to `EXPIRED` lazily, the first time it's read (`getApprovalRequest`) or
-acted on (`resolveApproval`), each recording an `approval.expired` audit
-event. Simpler than a scheduler, and correct for the only thing that
+Since P0, every request is created with `expiresAt` = request time + 24h
+(`lib/approvals/binding.ts#APPROVAL_PENDING_TTL_MS`). The P0 migration gave
+every legacy `PENDING` request without a deadline one at least 24h after the
+migration ran. There is no scheduled job: a `PENDING` request past
+`expiresAt` is flipped to `EXPIRED` lazily — when it's read
+(`getApprovalRequest`), listed (`listApprovalRequests` expires overdue rows
+first), acted on (`resolveApproval`), or referenced by an agent trying to
+use it — each recording an `approval.expired` audit event.
+
+### Single-use execution binding (P0)
+
+An `APPROVED` request authorizes **one** execution of **exactly** the
+request that was approved:
+
+- At creation, Aegis stores `requestFingerprint` — a SHA-256 over the agent,
+  action, resource, effective environment, tool, and (redacted) context.
+- Approval opens an execution window: `executionExpiresAt` = approval time
+  + 1h (`APPROVAL_EXECUTION_TTL_MS`).
+- The agent consumes it by calling `POST /api/v1/evaluate` again with the
+  same request and `approvalRequestId`. A conditional `UPDATE … WHERE
+  consumedAt IS NULL AND requestFingerprint = … AND executionExpiresAt >
+  now()` claims it atomically, so under any number of concurrent attempts
+  exactly one gets `ALLOW`; the rest get `BLOCK`
+  (`APPROVAL_ALREADY_USED`). `consumedAt` / `consumedByEvaluationId` and an
+  `approval.consumed` audit event record the use; refused attempts record
+  `approval.consumption_denied`.
+- A different amount, record, tool, action, or agent never matches the
+  fingerprint (`APPROVAL_REQUEST_MISMATCH` / `APPROVAL_AGENT_MISMATCH`) and
+  doesn't consume the approval.
+- The kill switch and BLOCK policies still win: an approval only satisfies
+  a `REQUIRE_APPROVAL` outcome.
+- Legacy approvals (created before P0, `requestFingerprint` null) can never
+  be consumed — request a new one.
+
+Honest limit: an integration that acts directly on a polled `APPROVED`
+status without consuming it isn't stopped by Aegis (it never asks). The
+consume step is what makes Aegis's `ALLOW` single-use and gives the audit
+trail proof of one execution. Simpler than a scheduler, and correct for the only thing that
 actually depends on the status: nothing can approve/reject a request the
 system hasn't yet noticed is expired, because the flip happens as part of
 the very check that would allow resolution.

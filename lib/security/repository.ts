@@ -1,12 +1,22 @@
 import "server-only";
 
-import type { AgentStatus, Prisma, RiskLevel, SecurityAlertSeverity, SecurityAlertStatus } from "@prisma/client";
+import type {
+  AgentStatus,
+  Prisma,
+  RiskLevel,
+  SecurityAlertConfidence,
+  SecurityAlertSeverity,
+  SecurityAlertStatus,
+} from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { redactSecrets } from "@/lib/security/redact";
 import { recordAuditEvent } from "@/lib/audit/service";
 import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
+import { scheduleTrustEvaluation } from "@/lib/trust/evaluate";
+import { ensureIncidentForAlert } from "@/lib/incidents/service";
+import { TRUST_ALERT_TYPES } from "@/lib/trust/config";
 import { SECURITY_ALERT_TYPES } from "@/lib/security/types";
 import type { Finding } from "@/lib/security/types";
 import { SecurityAlertAlreadyResolvedError, SecurityAlertNotFoundError } from "@/lib/security/types";
@@ -21,13 +31,30 @@ const ALERT_INCLUDE = {
   resolvedByUser: { select: { id: true, name: true, email: true } },
 } satisfies Prisma.SecurityAlertInclude;
 
+const SEVERITY_RANK: Record<SecurityAlertSeverity, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
+const CONFIDENCE_RANK: Record<SecurityAlertConfidence, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
+
 /**
- * Persists a detector Finding with dedup: a repeat trigger of the same
- * (agentId, type) against an OPEN alert from the last 24h bumps
- * count/lastSeenAt/evidence instead of creating a new row — spec §6's
- * "avoid alert spam." Only a genuinely new alert is audit-logged; dedup
- * updates are not, so acknowledging/resolving one alert's audit trail
- * stays readable instead of one line per repeat trigger.
+ * Persists a detector Finding with dedup that never destroys evidence (P0 —
+ * docs/AEGIS_P0_IMPLEMENTATION.md §5).
+ *
+ * The SecurityAlert row is a summary; every trigger — first and repeat —
+ * is also written as an append-only SecurityAlertOccurrence with its own
+ * timestamp, severity, evidence, and traceId. A repeat of the same finding
+ * (same agent, type, and dedupeKey) against an OPEN alert from the last 24h
+ * bumps count/lastSeenAt on the summary instead of opening a new alert, and:
+ *   - severity only ever goes UP (a later, milder trigger can't downgrade a
+ *     CRITICAL alert to HIGH);
+ *   - the summary's original evidence/title/description/traceId are kept
+ *     (they describe the first occurrence) — later evidence lives on its
+ *     occurrence row, never overwriting anything;
+ *   - findings that are genuinely different things (another action, tool,
+ *     or policy) carry a different dedupeKey and get their own alert.
+ *
+ * The find-or-create runs under a transaction-scoped advisory lock on the
+ * dedup identity, so two concurrent triggers can't both create an alert.
+ * Only a genuinely new alert is audit-logged / webhooked; repeats are
+ * visible as occurrences + count.
  */
 export async function upsertAlertFinding(
   organizationId: string,
@@ -35,43 +62,90 @@ export async function upsertAlertFinding(
 ): Promise<{ created: boolean; alert: Prisma.SecurityAlertGetPayload<{ include: typeof ALERT_INCLUDE }> }> {
   const since = new Date(Date.now() - DEDUP_WINDOW_MS);
   const redactedEvidence = redactSecrets(finding.evidence) as Prisma.InputJsonValue;
+  const dedupeKey = finding.dedupeKey ?? "";
+  const now = new Date();
 
-  const existing = await prisma.securityAlert.findFirst({
-    where: { organizationId, agentId: finding.agentId, type: finding.type, status: "OPEN", firstSeenAt: { gte: since } },
-    orderBy: { lastSeenAt: "desc" },
-  });
+  const result = await prisma.$transaction(async (tx) => {
+    const lockKey = `security_alert:${organizationId}:${finding.agentId}:${finding.type}:${dedupeKey}`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
 
-  if (existing) {
-    const updated = await prisma.securityAlert.update({
-      where: { id: existing.id },
+    const existing = await tx.securityAlert.findFirst({
+      where: {
+        organizationId,
+        agentId: finding.agentId,
+        type: finding.type,
+        dedupeKey,
+        status: "OPEN",
+        firstSeenAt: { gte: since },
+      },
+      orderBy: { lastSeenAt: "desc" },
+    });
+
+    const alertId = existing?.id;
+    let alert;
+    if (existing) {
+      const escalate = SEVERITY_RANK[finding.severity] > SEVERITY_RANK[existing.severity];
+      const strongerConfidence =
+        finding.confidence &&
+        (!existing.confidence || CONFIDENCE_RANK[finding.confidence] > CONFIDENCE_RANK[existing.confidence]);
+      alert = await tx.securityAlert.update({
+        where: { id: existing.id },
+        data: {
+          count: { increment: 1 },
+          lastSeenAt: now,
+          ...(escalate ? { severity: finding.severity } : {}),
+          ...(strongerConfidence ? { confidence: finding.confidence } : {}),
+          ...(!existing.recommendedAction && finding.recommendedAction
+            ? { recommendedAction: finding.recommendedAction }
+            : {}),
+        },
+        include: ALERT_INCLUDE,
+      });
+    } else {
+      alert = await tx.securityAlert.create({
+        data: {
+          organizationId,
+          agentId: finding.agentId,
+          type: finding.type,
+          dedupeKey,
+          severity: finding.severity,
+          title: finding.title,
+          description: finding.description,
+          evidence: redactedEvidence,
+          traceId: finding.traceId ?? undefined,
+          confidence: finding.confidence ?? undefined,
+          recommendedAction: finding.recommendedAction ?? undefined,
+          firstSeenAt: now,
+          lastSeenAt: now,
+        },
+        include: ALERT_INCLUDE,
+      });
+    }
+
+    await tx.securityAlertOccurrence.create({
       data: {
-        count: { increment: 1 },
-        lastSeenAt: new Date(),
-        evidence: redactedEvidence,
+        organizationId,
+        alertId: alertId ?? alert.id,
+        occurredAt: now,
         severity: finding.severity,
         confidence: finding.confidence ?? undefined,
-        recommendedAction: finding.recommendedAction ?? undefined,
+        title: finding.title,
+        description: finding.description,
+        evidence: redactedEvidence,
+        traceId: finding.traceId ?? undefined,
       },
-      include: ALERT_INCLUDE,
     });
-    return { created: false, alert: updated };
+
+    return { created: !existing, alert };
+  });
+
+  // Trust (P3): a new alert, or another occurrence of an open one, is evidence — when its type counts toward trust at all.
+  if (TRUST_ALERT_TYPES.includes(finding.type)) {
+    scheduleTrustEvaluation("alert", organizationId, finding.agentId, { trigger: "SECURITY_ALERT", triggerRef: result.alert.id });
   }
 
-  const created = await prisma.securityAlert.create({
-    data: {
-      organizationId,
-      agentId: finding.agentId,
-      type: finding.type,
-      severity: finding.severity,
-      title: finding.title,
-      description: finding.description,
-      evidence: redactedEvidence,
-      traceId: finding.traceId ?? undefined,
-      confidence: finding.confidence ?? undefined,
-      recommendedAction: finding.recommendedAction ?? undefined,
-    },
-    include: ALERT_INCLUDE,
-  });
+  if (!result.created) return { created: false, alert: result.alert };
+  const created = result.alert;
 
   await recordAuditEvent(prisma, {
     organizationId,
@@ -94,6 +168,14 @@ export async function upsertAlertFinding(
     traceId: created.traceId,
   };
   await dispatchWebhookEvent(organizationId, "security.alert.created", webhookPayload);
+
+  // P7: a newly created alert opens (or reinforces) the run's incident. Failure-isolated — an incident
+  // problem must never turn a recorded alert into an error.
+  try {
+    await ensureIncidentForAlert(organizationId, { id: created.id, agentId: created.agentId, title: created.title, severity: created.severity, traceId: created.traceId });
+  } catch (error) {
+    console.error(JSON.stringify({ msg: "incident_open_failed", alertId: created.id, error: String(error) }));
+  }
   if (finding.type === SECURITY_ALERT_TYPES.COST_SPIKE) {
     await dispatchWebhookEvent(organizationId, "cost.anomaly.detected", { ...webhookPayload, evidence: finding.evidence });
   }
@@ -137,6 +219,18 @@ export async function listSecurityAlerts(organizationId: string, filters: Securi
 
 export async function getSecurityAlert(organizationId: string, id: string) {
   return prisma.securityAlert.findFirst({ where: { id, organizationId }, include: ALERT_INCLUDE });
+}
+
+const OCCURRENCE_PAGE_SIZE = 50;
+
+/** Most recent occurrences of one alert (the preserved per-trigger evidence) plus the total. */
+export async function listAlertOccurrences(organizationId: string, alertId: string) {
+  const where = { organizationId, alertId };
+  const [occurrences, total] = await Promise.all([
+    prisma.securityAlertOccurrence.findMany({ where, orderBy: { occurredAt: "desc" }, take: OCCURRENCE_PAGE_SIZE }),
+    prisma.securityAlertOccurrence.count({ where }),
+  ]);
+  return { occurrences, total };
 }
 
 export async function listSecurityAlertsForAgent(organizationId: string, agentId: string, limit = 10) {
@@ -400,6 +494,8 @@ export async function acknowledgeAlert(organizationId: string, id: string, userI
     action: outcome.alert.type,
   });
 
+  scheduleTrustEvaluation("alert-acknowledged", organizationId, outcome.alert.agentId, { trigger: "SECURITY_ALERT", triggerRef: outcome.alert.id });
+
   return outcome.alert;
 }
 
@@ -428,6 +524,9 @@ export async function resolveAlert(organizationId: string, id: string, userId: s
     type: outcome.alert.type,
     agentId: outcome.alert.agentId,
   });
+
+  // Trust (P3): a handled alert weighs less (and recovery shows sooner).
+  scheduleTrustEvaluation("alert-resolved", organizationId, outcome.alert.agentId, { trigger: "SECURITY_ALERT", triggerRef: outcome.alert.id });
 
   return outcome.alert;
 }

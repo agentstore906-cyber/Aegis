@@ -46,6 +46,11 @@ export class HttpClient {
             return true;
         if (error instanceof AegisNetworkError)
             return true;
+        // A previous attempt with the same Idempotency-Key is still running on
+        // the server — retrying (same key) returns its result instead of
+        // executing twice.
+        if (error instanceof AegisValidationError && error.code === "IDEMPOTENCY_KEY_IN_PROGRESS")
+            return true;
         if (error instanceof AegisApiError)
             return error.status >= 500;
         return false;

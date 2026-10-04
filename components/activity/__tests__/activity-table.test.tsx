@@ -42,6 +42,22 @@ function makeEvent(overrides: Partial<EventRow> = {}): EventRow {
     parentEventId: null,
     errorMessage: null,
     metadata: null,
+    clientEventId: null,
+    parentClientEventId: null,
+    evaluationId: null,
+    occurredAt: null,
+    environment: null,
+    toolKey: "crm",
+    service: null,
+    destination: null,
+    destinationKind: null,
+    endUserHash: null,
+    dataClasses: [],
+    dataSensitivity: null,
+    recordCount: null,
+    byteCount: null,
+    outcome: "SUCCESS",
+    riskSignals: null,
     agent: { id: "agent_1", name: "Sales Agent", slug: "sales-agent" },
     ...overrides,
   };
@@ -65,8 +81,9 @@ describe("<ActivityTable>", () => {
     expect(markup).toContain("contact:acme-inc");
     expect(markup).toContain("database delete");
     expect(markup).toContain("Customer records");
-    expect(markup).toContain("Allowed");
-    expect(markup).toContain("Blocked");
+    expect(markup).toContain("Recorded"); // reported by an agent (source "api"): Aegis recorded it, it did not "allow" it
+    expect(markup).toContain("Reported blocked");
+    expect(markup).not.toContain(">Allowed<");
     // +1 for the header row rendered by <Thead>.
     expect((markup.match(/<tr/g) ?? []).length).toBe(events.length + 1);
   });
@@ -92,11 +109,24 @@ describe("<ActivityTable>", () => {
 describe("<ActivityRow>", () => {
   it("falls back to the machine action code, not an invented description, when none was reported", () => {
     const markup = renderToStaticMarkup(
-      <ActivityRow timestamp={new Date()} action="database_delete" resource="Customer records" status="BLOCKED" />
+      <ActivityRow timestamp={new Date()} action="database_delete" resource="Customer records" status="BLOCKED" source="policy_evaluation" />
     );
     expect(markup).toContain("database delete");
     expect(markup).toContain("Customer records");
     expect(markup).toContain("Blocked");
+  });
+
+  it("says 'Recorded', not 'Allowed', for an action the agent merely REPORTED — Aegis decided nothing about it", () => {
+    const reported = renderToStaticMarkup(<ActivityRow timestamp={new Date()} action="crm_read" status="ALLOWED" source="api" />);
+    expect(reported).toContain("Recorded");
+    expect(reported).not.toContain("Allowed");
+    const decided = renderToStaticMarkup(<ActivityRow timestamp={new Date()} action="crm_read" status="ALLOWED" source="policy_evaluation" />);
+    expect(decided).toContain("Allowed");
+  });
+
+  it("an agent-reported 'blocked' is shown as the agent's own report, never as an Aegis block", () => {
+    const markup = renderToStaticMarkup(<ActivityRow timestamp={new Date()} action="x" status="BLOCKED" source="api" />);
+    expect(markup).toContain("Reported blocked");
   });
 
   it("prefers a caller-supplied description over the raw action code", () => {

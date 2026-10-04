@@ -38,12 +38,21 @@ export const SECURITY_ALERT_TYPES = {
   // (lib/policies/evaluate.ts) when an ALERT-decision policy matches an
   // action. A human-configured rule, not an inferred deviation.
   POLICY_ALERT: "POLICY_ALERT",
+  // P5: raised when an organization's risk control (not a configured policy)
+  // turns a request into an ALERT. Operator-facing evidence; never counted
+  // toward agent trust (it would feed back into risk).
+  RISK_ALERT: "RISK_ALERT",
   // Firewall truthfulness (spec §8): raised when a *self-reported*,
   // already-completed action (POST /api/v1/events) would have resolved to
   // BLOCK had it gone through the pre-flight /evaluate path first. Always
   // "detected", never "blocked" — the action already happened and Aegis
   // had no chance to prevent it. See lib/security/evaluate.ts.
   POLICY_VIOLATION_DETECTED: "POLICY_VIOLATION_DETECTED",
+  // Kill-switch truthfulness (P0): a STOPPED/PAUSED/ARCHIVED agent reported
+  // an action it completed anyway. Aegis refuses such an agent's /evaluate
+  // calls, but can't physically stop it — this is the evidence that the
+  // halt wasn't honored. Always "detected", never "blocked".
+  ACTIVITY_WHILE_HALTED: "ACTIVITY_WHILE_HALTED",
   // AI Agent Security (Phase 9) — heuristic indicators, always carry a
   // `confidence`, never asserted as certain.
   PROMPT_INJECTION_INDICATOR: "PROMPT_INJECTION_INDICATOR",
@@ -74,6 +83,13 @@ export type Finding = {
   confidence?: SecurityAlertConfidence;
   /** A concrete next step for a reviewer — e.g. "Review this policy" or "Rotate the exposed credential." */
   recommendedAction?: string;
+  /**
+   * What makes this finding a *different* alert from another of the same
+   * type for the same agent (e.g. the action, tool, or policy involved).
+   * Omitted = one alert per (agent, type) — right for agent-wide spikes.
+   * See lib/security/repository.ts#upsertAlertFinding.
+   */
+  dedupeKey?: string;
 };
 
 /**

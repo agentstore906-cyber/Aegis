@@ -3,7 +3,7 @@ import { DemoApp } from "@/components/demo/demo-app";
 import { trackEvent } from "@/lib/analytics/track";
 
 export const metadata: Metadata = {
-  title: "Live Demo",
+  title: "Demo (sample data)",
   description:
     "Explore an interactive Aegis demo dashboard with sample agents, runs, and alerts.",
 };

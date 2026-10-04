@@ -47,8 +47,17 @@ export function MobileNav({ links }: { links: { href: string; label: string }[] 
               Book a Demo
             </ButtonLink>
             <TrackedButtonLink
-              href="/sign-up"
+              href="/scan"
               variant="primary"
+              size="sm"
+              event="landing_cta_clicked"
+              eventProps={{ source: "mobile_nav_scan" }}
+            >
+              Scan your AI agent
+            </TrackedButtonLink>
+            <TrackedButtonLink
+              href="/sign-up"
+              variant="secondary"
               size="sm"
               event="landing_cta_clicked"
               eventProps={{ source: "mobile_nav" }}

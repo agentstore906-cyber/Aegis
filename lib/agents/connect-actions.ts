@@ -1,5 +1,6 @@
 "use server";
 
+import { attributeToScanner } from "@/lib/scanner/analytics";
 import { revalidatePath } from "next/cache";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
@@ -52,10 +53,12 @@ export async function connectAgentAction(input: unknown) {
     credential: parsed.data.credential,
     selectedExternalId: parsed.data.selectedExternalId,
     agentName: parsed.data.agentName,
+    environment: parsed.data.environment,
   });
 
   if (result.ok) {
     trackEvent("agent_connected", { organizationId: organization.id, agentId: result.agentId });
+    await attributeToScanner(organization.id, "agent_connected");
     revalidatePath("/agents");
   }
 

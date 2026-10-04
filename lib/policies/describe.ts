@@ -53,7 +53,11 @@ export function describePolicy(policy: {
   if (policy.resource) scopeParts.push(`on "${policy.resource}"`);
   if (policy.environment) scopeParts.push(`in ${policy.environment.toLowerCase()}`);
   if (policy.tool) scopeParts.push(`via ${policy.tool}`);
-  if (policy.riskLevel) scopeParts.push(`with ${policy.riskLevel.toLowerCase()} risk`);
+  // Restrictive policies treat riskLevel as a threshold (lib/policies/matcher.ts); ALLOW stays exact.
+  if (policy.riskLevel) {
+    const atLeast = policy.decision !== "ALLOW" && policy.riskLevel !== "CRITICAL";
+    scopeParts.push(`with ${policy.riskLevel.toLowerCase()}${atLeast ? " or higher" : ""} risk`);
+  }
 
   const conditionParts = policy.conditions.map(describeCondition);
   const allParts = [...scopeParts, ...conditionParts];

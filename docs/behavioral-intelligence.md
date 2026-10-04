@@ -1,3 +1,9 @@
+> **Superseded in part (P2, 2026-10-03).** The seven-day
+> `lib/security/baseline.ts` calculation and its card described below were
+> replaced by persistent, versioned per-agent baselines — see
+> `docs/AEGIS_P2_BEHAVIORAL_MEMORY.md`. The Agent Risk Score and the
+> detector extensions described here are unchanged.
+
 # Behavioral intelligence (Phase 2)
 
 This document covers `lib/security/baseline.ts` and `lib/security/risk-score.ts`

@@ -14,6 +14,9 @@ import { policyTesterSchema } from "@/lib/validation/tester";
 import * as repo from "@/lib/policies/repository";
 import { DuplicatePermissionError } from "@/lib/policies/repository";
 import { evaluateAgentAction } from "@/lib/policies/evaluate";
+import { simulateAgentAction, type SimulationResult } from "@/lib/control/simulate";
+import { canViewSecurityAlerts } from "@/lib/security/authorization";
+import { telemetryInputSchema } from "@/lib/validation/api";
 import type { PolicyEvaluationResult } from "@/lib/policies/types";
 import { recordAuditEvent } from "@/lib/audit/service";
 import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
@@ -382,16 +385,40 @@ export async function deletePolicyAction(policyId: string) {
 
 export type PolicyTesterState = {
   error?: string;
+  /** A recorded evaluation (mode "record"). */
   result?: PolicyEvaluationResult;
+  /** A read-only simulation (mode "simulate", the default). */
+  simulation?: SimulationResult;
 };
+
+/** Reads the tester's optional telemetry inputs and normalizes them exactly as the API boundary does. */
+function parseTesterTelemetry(formData: FormData) {
+  const text = (key: string) => {
+    const v = formData.get(key);
+    return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
+  };
+  const num = (key: string) => {
+    const v = text(key);
+    return v === undefined ? undefined : Number(v);
+  };
+  const classes = formData.getAll("dataClasses").filter((v): v is string => typeof v === "string" && v !== "");
+  return telemetryInputSchema.safeParse({
+    service: text("service"),
+    destination: text("destination"),
+    dataClasses: classes.length ? classes : undefined,
+    recordCount: num("recordCount"),
+    byteCount: num("byteCount"),
+  });
+}
 
 export async function runPolicyTesterAction(
   _prevState: PolicyTesterState,
   formData: FormData
 ): Promise<PolicyTesterState> {
-  const { organization } = await requireActiveOrganization();
+  const { organization, role } = await requireActiveOrganization();
 
   const parsed = policyTesterSchema.safeParse({
+    mode: formData.get("mode") ?? "simulate",
     agentId: formData.get("agentId"),
     action: formData.get("action"),
     resource: formData.get("resource") ?? "",
@@ -405,12 +432,15 @@ export async function runPolicyTesterAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
+  const telemetry = parseTesterTelemetry(formData);
+  if (!telemetry.success) return { error: telemetry.error.issues[0]?.message ?? "Invalid telemetry" };
+
   const agent = await prisma.agent.findFirst({
     where: { id: parsed.data.agentId, organizationId: organization.id },
   });
   if (!agent) return { error: "Agent not found in this organization." };
 
-  const result = await evaluateAgentAction({
+  const input = {
     organizationId: organization.id,
     agentId: parsed.data.agentId,
     action: parsed.data.action,
@@ -419,7 +449,26 @@ export async function runPolicyTesterAction(
     tool: emptyToUndefined(parsed.data.tool),
     riskLevel: emptyToUndefined(parsed.data.riskLevel) as RiskLevel | undefined,
     context: parsed.data.contextJson,
-  });
+    telemetry: telemetry.data,
+    // A signed-in member simulating a scenario may pick the environment
+    // explicitly; an agent calling the API may not (decision-context.ts).
+    contextSource: "operator" as const,
+  };
+
+  // The default is a READ-ONLY simulation: it explains what Aegis would do and writes nothing, so testing can
+  // never create approvals/alerts or feed an agent's trust and risk history. It shows risk, trust and behavior,
+  // so it has the same visibility as the other security views.
+  if (parsed.data.mode === "simulate") {
+    if (!canViewSecurityAlerts(role)) return { error: "Simulation shows risk, trust and behavior, which your role cannot see." };
+    return { simulation: await simulateAgentAction(input) };
+  }
+
+  // Recording runs the REAL engine and writes the evaluation (and any approval request or alert it raises); it
+  // counts toward the agent's trust and history. Changing that history needs the right to manage policies.
+  if (!canManagePolicies(role)) {
+    return { error: "Recording a real evaluation needs permission to manage policies. Use simulation instead — it records nothing." };
+  }
+  const result = await evaluateAgentAction(input);
 
   revalidatePath("/policies/evaluations");
   revalidatePath("/overview");

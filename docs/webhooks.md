@@ -46,9 +46,13 @@ registry — bump it if the envelope shape ever changes incompatibly (spec
 
 ## Delivery — best-effort, not a durable queue
 
-`dispatchWebhookEvent()` POSTs immediately, inline, with up to 2 bounded
-retries (3 attempts total) on network error or 5xx, with a short backoff
-between attempts. A 4xx response is never retried — it's the receiver's
+`dispatchWebhookEvent()` snapshots the (redacted) payload synchronously and
+delivers it **after the response is sent** (P0 — `lib/server/defer.ts`,
+Next.js `after()`), so a slow or failing receiver can never delay or fail
+the request that triggered it (previously up to ~16s on
+`POST /api/v1/evaluate`). Delivery makes up to 2 bounded retries (3
+attempts total) on network error or 5xx, with a short backoff between
+attempts. A 4xx response is never retried — it's the receiver's
 problem, not a transient failure. Every attempt (success or failure) is
 logged to `WebhookDelivery`, one row per attempt.
 

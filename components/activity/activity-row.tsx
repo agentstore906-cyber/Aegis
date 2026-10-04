@@ -12,6 +12,7 @@ export function ActivityRow({
   toolName,
   description,
   status,
+  source,
 }: {
   timestamp: Date;
   agentName?: string;
@@ -21,6 +22,7 @@ export function ActivityRow({
   toolName?: string | null;
   description?: string | null;
   status: ActivityStatus;
+  source?: string | null;
 }) {
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
@@ -44,7 +46,7 @@ export function ActivityRow({
           {resource && <p className="truncate text-xs text-muted-foreground">{resource}</p>}
         </div>
       </div>
-      <ActivityStatusBadge status={status} />
+      <ActivityStatusBadge status={status} source={source} />
     </div>
   );
 }

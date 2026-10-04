@@ -3,11 +3,14 @@ import type { MemberRole } from "@prisma/client";
 import { Sparkles } from "lucide-react";
 
 import { MobileSidebar } from "@/components/dashboard/mobile-sidebar";
+import type { NavCounts } from "@/components/dashboard/nav-list";
+import { PaletteHost } from "@/components/dashboard/palette-host";
 import { UserMenu } from "@/components/dashboard/user-menu";
 import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import { canViewBilling, canManageBilling } from "@/lib/billing/authorization";
 import { DEFAULT_PLAN_ID } from "@/lib/billing/plans";
+import { paletteCommands } from "@/lib/dashboard-commands";
 
 export function Topbar({
   organizationName,
@@ -15,12 +18,14 @@ export function Topbar({
   role,
   userName,
   userEmail,
+  counts,
 }: {
   organizationName: string;
   plan: string;
   role: MemberRole;
   userName: string;
   userEmail: string;
+  counts?: NavCounts;
 }) {
   const viewBilling = canViewBilling(role);
   const showUpgrade = canManageBilling(role) && plan === DEFAULT_PLAN_ID;
@@ -32,9 +37,9 @@ export function Topbar({
   );
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-surface px-4 sm:px-6">
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
-        <MobileSidebar role={role} />
+        <MobileSidebar role={role} counts={counts} />
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-sm font-medium text-foreground">{organizationName}</span>
           {viewBilling ? (
@@ -52,6 +57,7 @@ export function Topbar({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
+        <PaletteHost commands={paletteCommands(role)} />
         {showUpgrade && (
           <ButtonLink href="/upgrade" size="sm">
             <Sparkles className="size-4" aria-hidden="true" />

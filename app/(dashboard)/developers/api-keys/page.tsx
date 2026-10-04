@@ -3,6 +3,7 @@ import { KeyRound } from "lucide-react";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { listApiKeys } from "@/lib/api-keys/repository";
+import { listAllAgentsForOrg } from "@/lib/agents/queries";
 import { canManageApiKeys } from "@/lib/api-keys/authorization";
 import { getPlan } from "@/lib/billing/plans";
 
@@ -20,7 +21,7 @@ export default async function ApiKeysPage() {
   const { organization, role } = await requireActiveOrganization();
   const canManage = canManageApiKeys(role);
 
-  const apiKeys = await listApiKeys(organization.id);
+  const [apiKeys, agents] = await Promise.all([listApiKeys(organization.id), listAllAgentsForOrg(organization.id)]);
   const activeKeyCount = apiKeys.filter((key) => !key.revokedAt).length;
   const plan = getPlan(organization.plan);
   const atLimit = plan.apiKeyLimit !== null && activeKeyCount >= plan.apiKeyLimit;
@@ -55,7 +56,7 @@ export default async function ApiKeysPage() {
 
       {canManage && (
         <div className="mb-6">
-          <CreateApiKeyForm />
+          <CreateApiKeyForm agents={agents.map((agent) => ({ id: agent.id, name: agent.name }))} />
         </div>
       )}
 

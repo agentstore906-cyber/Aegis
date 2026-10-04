@@ -25,7 +25,7 @@ later. Copy `.env.example` and fill in real values (never commit them).
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `AUTH_SECRET` | Signs session JWTs — `openssl rand -base64 32`. Also the source key for encrypting stored Connect Agent provider credentials (`lib/connectors/crypto.ts`) — rotating it makes existing OpenAI/Anthropic connections unable to decrypt their stored key, requiring a reconnect. |
+| `AUTH_SECRET` | Signs session JWTs — `openssl rand -base64 32`. Also the *fallback* key for encrypting stored provider credentials when `CONNECTOR_ENCRYPTION_KEYS` isn't set. If you rotate it, put the old value in `AUTH_SECRET_PREVIOUS` (see below) or existing OpenAI/Anthropic connections can't decrypt their stored key. |
 | `AUTH_URL` | Public base URL of the deployment (e.g. `https://app.example.com`) — required in production, auto-detected in dev |
 
 **Optional — platform admin.** Comma-separated allowlist of emails allowed
@@ -57,6 +57,47 @@ half-configured plan (price set, product not, or vice versa) is easy to
 spot when reading the config. There is no Enterprise price — that plan is
 "Contact sales" only, deliberately never wired to a Paddle checkout.
 
+**Recommended — credential encryption keyring (P0, `lib/connectors/credential-keyring.ts`).**
+
+| Variable | Purpose |
+|---|---|
+| `CONNECTOR_ENCRYPTION_KEYS` | `id:base64key[,id:base64key…]` — dedicated AES-256 keys (32 bytes each, `openssl rand -base64 32`) for stored provider credentials. The first is the primary for new encryptions; others stay decrypt-only. Decouples credential encryption from `AUTH_SECRET`. |
+| `AUTH_SECRET_PREVIOUS` | Comma-separated former `AUTH_SECRET` values, decrypt-only — set when rotating `AUTH_SECRET` so existing credentials keep working. |
+
+Rotation: add the new key first in `CONNECTOR_ENCRYPTION_KEYS` (keep the
+old one after it, and/or the old secret in `AUTH_SECRET_PREVIOUS`), deploy,
+run `npx tsx scripts/rotate-connector-credentials.ts` (dry run) then
+`--apply`, and remove the old key only once it reports nothing left on it.
+Credentials are also re-encrypted lazily as connections are used.
+
+**Recommended — telemetry pseudonym key (P1).** `TELEMETRY_HASH_KEY`
+(base64, ≥32 bytes, `openssl rand -base64 32`) keys the HMAC that turns an
+agent-reported `endUserId` into a stored pseudonym. Unset → derived from
+`AUTH_SECRET`, which means rotating `AUTH_SECRET` changes every pseudonym
+(continuity loss for per-user history, never an exposure). Set it once and
+keep it stable.
+
+**Optional — platform-wide risk-control stop (P5).** `AEGIS_RISK_CONTROL_DISABLED=1` (or `true`/`yes`) forces every organization to OBSERVE: risk is still assessed and recorded, but never changes a decision. Unset by default. It deletes nothing and each decision records both the configured and the effective mode. See `docs/AEGIS_P5_CONTROL.md`.
+
+**Optional — scheduled behavior refresh (P2).** `CRON_SECRET` protects
+`GET /api/internal/behavior/refresh`, which `vercel.json` schedules daily
+(00:15 UTC; Vercel Cron sends `Authorization: Bearer $CRON_SECRET`
+automatically). Unset → the endpoint returns 503 and the cron is a no-op;
+baselines are still computed lazily on first use each day. The same cron
+also re-evaluates agent trust (P3), so trust recovers as evidence ages even
+for agents that stay quiet; reads re-evaluate when stale as well.
+
+**Optional — rate limiting (P0).** `RATE_LIMIT_BACKEND` = `postgres`
+(default in production: counters shared across instances in the
+`rate_limit_buckets` table) or `memory` (default elsewhere).
+
+**Development only — integration tests (P0).** `DATABASE_URL_TEST` must
+point at a separate, disposable database whose name contains `test`
+(non-local hosts also need `AEGIS_ALLOW_REMOTE_TEST_DB=<host>`). Without it,
+integration tests are skipped — they never use `DATABASE_URL`. See
+`lib/testing/test-db-guard.ts`. (`.env.example` is matched by `.gitignore`,
+so these variables are documented here rather than there.)
+
 **Optional — future OAuth.** Not required; credentials (email+password)
 auth works standalone. See `.env.example`.
 
@@ -70,6 +111,24 @@ migrations non-interactively and is what CI/production should run:
 npx prisma migrate deploy
 npx prisma generate
 ```
+
+**P0 migration (`20261001120000_p0_decision_correctness`).** Additive
+columns/tables plus conservative backfills — see
+`docs/AEGIS_P0_IMPLEMENTATION.md` "Migration". It also changes decision
+behavior at deploy time (strict policy matching, kill switch, single-use
+approvals, agent-bound SDK keys); read that document before deploying.
+
+**P1 migration (`20261002120000_p1_agent_data_foundation`).** Additive
+columns/enums/indexes, two foreign keys, deterministic backfills, and
+**append-only triggers** on `activity_events`, `policy_evaluations`,
+`audit_events`, `approval_decisions`, and `security_alert_occurrences`. After
+it, an `UPDATE` that changes recorded evidence fails at the database level
+(for every client — including ad-hoc SQL). Deletes still work. See
+`docs/AEGIS_P1_DATA_FOUNDATION.md` "Migration".
+
+**Caution:** `npm run build` runs `prisma migrate deploy` against whatever
+`DATABASE_URL` is set. To verify a build locally, use `npx next build` with
+`DATABASE_URL` pointed at a local database.
 
 Review new migrations before deploying them (`prisma/migrations/`) —
 never run a destructive migration or `prisma db push --force-reset`
@@ -128,7 +187,7 @@ directly on that id (`BillingWebhookEvent` table);
 handling is also written to set absolute state (never deltas), so an
 out-of-order or duplicated event still converges. **Verified with
 signature-verification, idempotency, tenant-isolation and lifecycle tests
-using synthetic events (`app/api/webhooks/paddle/__tests__/route.test.ts`),
+using synthetic events (`app/api/webhooks/paddle/__tests__/route.integration.test.ts`),
 not against a live Paddle account.** Run one real checkout → webhook →
 plan-change round trip against a Paddle **sandbox** account before relying
 on it in production.
@@ -162,8 +221,11 @@ created from `/developers/api-keys`. See `docs/api.md` and
 
 ## 9. Background jobs / scheduled tasks
 
-**None exist in this codebase, and none run automatically in any
-deployment of it.** This is a real, current limitation, not an oversight:
+**One scheduled job exists (P2):** the daily behavioral-baseline
+pre-computation (`vercel.json` → `/api/internal/behavior/refresh`, requires
+`CRON_SECRET`). It is an optimization only — baselines are computed lazily
+on first use each day without it. Everything below still has **no**
+scheduler:
 
 - **Retention** (`Organization.activityRetentionDays` etc.) is
   configuration only — nothing deletes data on a schedule. See

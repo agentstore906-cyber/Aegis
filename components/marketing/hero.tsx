@@ -17,16 +17,20 @@ export function Hero() {
         </p>
 
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <TrackedButtonLink href="/sign-up" size="lg" event="landing_cta_clicked" eventProps={{ source: "hero" }}>
-            Start Free
+          <TrackedButtonLink href="/scan" size="lg" event="landing_cta_clicked" eventProps={{ source: "hero_scan" }}>
+            Scan your AI agent in 60 seconds
           </TrackedButtonLink>
-          <ButtonLink href="/contact" variant="secondary" size="lg">
-            Book a Demo
-          </ButtonLink>
+          <TrackedButtonLink href="/sign-up" variant="secondary" size="lg" event="landing_cta_clicked" eventProps={{ source: "hero" }}>
+            Create a free account
+          </TrackedButtonLink>
         </div>
-        <p className="mt-3">
+        <p className="mt-3 text-sm text-muted-foreground">Free scanner. No account needed.</p>
+        <p className="mt-2">
           <ButtonLink href="/demo" variant="ghost" size="sm">
             Or explore the interactive demo →
+          </ButtonLink>
+          <ButtonLink href="/contact" variant="ghost" size="sm">
+            Book a demo
           </ButtonLink>
         </p>
 

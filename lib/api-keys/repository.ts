@@ -4,16 +4,22 @@ import type { ApiKeyEnvironment } from "@prisma/client";
 
 import { prisma, type PrismaOrTx } from "@/lib/db";
 import { generateApiKey, hashApiKey } from "@/lib/api-keys/crypto";
+import { AdminScopeOnBoundKeyError, scopesForNewKey } from "@/lib/api-keys/scopes";
 
 export type CreateApiKeyInput = {
   name: string;
   environment: ApiKeyEnvironment;
   expiresAt?: Date | null;
+  /** Bind the key to one agent (P0 §7). Caller must have verified the agent belongs to organizationId. */
+  agentId?: string | null;
+  /** Opt-in tooling scopes (policy simulation, agent inventory). Organization-wide keys only. */
+  adminAccess?: boolean;
 };
 
 export async function listApiKeys(organizationId: string) {
   return prisma.apiKey.findMany({
     where: { organizationId },
+    include: { agent: { select: { id: true, name: true, slug: true } } },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -31,6 +37,9 @@ export async function createApiKey(
 ) {
   const { raw, prefix, keyHash } = generateApiKey(input.environment);
 
+  // Admin scopes (simulation, inventory) are for organization-wide tooling keys only.
+  if (input.adminAccess && input.agentId) throw new AdminScopeOnBoundKeyError();
+
   const apiKey = await client.apiKey.create({
     data: {
       organizationId,
@@ -40,6 +49,9 @@ export async function createApiKey(
       prefix,
       keyHash,
       expiresAt: input.expiresAt ?? undefined,
+      agentId: input.agentId ?? undefined,
+      // Unset = the database default (the agent-facing scopes); admin access adds the opt-in scopes explicitly.
+      ...(input.adminAccess ? { scopes: scopesForNewKey({ adminAccess: true }) } : {}),
     },
   });
 

@@ -13,6 +13,9 @@ import { ApprovalStatusBadge, RiskBadge, ActivityStatusBadge } from "@/component
 import { ApprovalResolutionForm } from "@/components/approvals/approval-resolution-form";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { MetadataView } from "@/components/activity/metadata-view";
+import { RiskAssessmentCard } from "@/components/risk/risk-assessment-card";
+import type { RiskAssessment } from "@/lib/risk/types";
+import type { RiskControlRecord } from "@/lib/risk/record";
 import { Alert } from "@/components/ui/alert";
 
 export const metadata: Metadata = { title: "Approval request" };
@@ -68,7 +71,12 @@ export default async function ApprovalDetailPage({
         <ApprovalStatusBadge status={request.status} />
       </div>
 
-      <Card>
+      <RiskAssessmentCard
+        assessment={(request.policyEvaluation?.riskAssessment as unknown as RiskAssessment | null) ?? null}
+        control={(request.policyEvaluation?.riskControl as unknown as RiskControlRecord | null) ?? null}
+      />
+
+      <Card className="mt-4">
         <CardHeader>
           <CardTitle>Request details</CardTitle>
         </CardHeader>
@@ -82,6 +90,20 @@ export default async function ApprovalDetailPage({
             <Field label="Policy result" value="REQUIRE APPROVAL" />
             {request.expiresAt && <Field label="Expires" value={formatDateTime(request.expiresAt)} />}
             {request.resolvedAt && <Field label="Resolved" value={formatDateTime(request.resolvedAt)} />}
+            {request.status === "APPROVED" && (
+              <Field
+                label="Execution"
+                value={
+                  request.consumedAt
+                    ? `Used once at ${formatDateTime(request.consumedAt)} — single-use, can't be reused`
+                    : !request.requestFingerprint
+                      ? "Approved before single-use binding existed — can't authorize an execution"
+                      : request.executionExpiresAt && request.executionExpiresAt > new Date()
+                        ? `Not used yet — valid for one execution until ${formatDateTime(request.executionExpiresAt)}`
+                        : "Not used — execution window has expired"
+                }
+              />
+            )}
           </dl>
 
           <div className="mt-5 border-t border-border pt-5">
@@ -195,7 +217,7 @@ export default async function ApprovalDetailPage({
                     <p className="truncate text-foreground">{event.action.replaceAll("_", " ")}</p>
                     <p className="text-xs text-muted-foreground">{formatDateTime(event.timestamp)}</p>
                   </div>
-                  <ActivityStatusBadge status={event.status} />
+                  <ActivityStatusBadge status={event.status} source={event.source} />
                 </div>
               ))}
             </div>

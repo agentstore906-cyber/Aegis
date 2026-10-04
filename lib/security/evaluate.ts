@@ -1,10 +1,11 @@
 import "server-only";
 
-import type { ActivityStatus, Environment, RiskLevel } from "@prisma/client";
+import type { ActivityStatus, AgentStatus, Environment, RiskLevel } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import {
   detectActivityVolumeSpike,
+  detectActivityWhileHalted,
   detectBlockSpike,
   detectCostSpike,
   detectCredentialExposureIndicator,
@@ -28,7 +29,9 @@ import {
 } from "@/lib/activity/queries";
 import { DELETE_KEYWORDS } from "@/lib/security/risk-scoring";
 import type { Finding } from "@/lib/security/types";
-import { filterApplicablePolicies, resolveBestPermission } from "@/lib/policies/matcher";
+import { filterApplicablePolicies, resolveBestPermission, type MatchingMode } from "@/lib/policies/matcher";
+import { buildDecisionContext } from "@/lib/policies/decision-context";
+import { normalizeKey } from "@/lib/telemetry/normalize";
 import { resolveDecision } from "@/lib/policies/resolver";
 import { listActivePoliciesForEvaluation } from "@/lib/policies/repository";
 import { checkAgentBudgets } from "@/lib/costs/budgets";
@@ -60,6 +63,8 @@ export type SecurityDetectorTrigger = {
    * already produced its own authoritative, correctly-timed decision.
    */
   checkPolicyViolation?: boolean;
+  /** The agent's control state when the event was reported — post-hoc ingestion path only. */
+  agentStatus?: AgentStatus;
 };
 
 /**
@@ -87,12 +92,14 @@ export async function runSecurityDetectors(trigger: SecurityDetectorTrigger): Pr
 async function runDetectorsUnsafe(trigger: SecurityDetectorTrigger): Promise<void> {
   const { organizationId, agent, action, resource, environment, riskLevel, status, traceId, toolName } = trigger;
   const now = Date.now();
+  const toolKey = normalizeKey(toolName);
 
   const [priorActionCount, priorNamespaceCount, priorToolCount, blockedCountInWindow, highRiskCountInWindow] =
     await Promise.all([
       prisma.activityEvent.count({ where: { organizationId, agentId: agent.id, action } }),
       countNamespaceHistory(organizationId, agent.id, action),
-      toolName ? prisma.activityEvent.count({ where: { organizationId, agentId: agent.id, toolName } }) : Promise.resolve(0),
+      // By normalized key (P1), so "CRM" after "crm" isn't reported as a new tool.
+      toolKey ? prisma.activityEvent.count({ where: { organizationId, agentId: agent.id, toolKey } }) : Promise.resolve(0),
       prisma.activityEvent.count({
         where: {
           organizationId,
@@ -161,12 +168,33 @@ async function runDetectorsUnsafe(trigger: SecurityDetectorTrigger): Promise<voi
   // already come back BLOCKED (an agent self-reporting that it was already
   // stopped isn't a violation Aegis failed to catch).
   if (trigger.checkPolicyViolation && status !== "BLOCKED") {
-    const [permissions, policies] = await Promise.all([
+    const [permissions, policies, agentRecord] = await Promise.all([
       prisma.agentPermission.findMany({ where: { organizationId, agentId: agent.id } }),
       listActivePoliciesForEvaluation(organizationId, agent.id),
+      prisma.agent.findFirst({
+        where: { id: agent.id, organizationId },
+        select: { environment: true, riskLevel: true, organization: { select: { legacyPolicyMatching: true } } },
+      }),
     ]);
-    const input = { organizationId, agentId: agent.id, action, resource: resource ?? undefined, environment: environment ?? undefined, riskLevel };
-    const resolved = resolveDecision(resolveBestPermission(permissions, input), filterApplicablePolicies(policies, input), input);
+    // Same trusted-context + matching rules as the pre-flight path
+    // (lib/policies/evaluate.ts), so "would policy have blocked this?" gets
+    // the same answer /evaluate would have given.
+    const mode: MatchingMode = agentRecord?.organization.legacyPolicyMatching ? "LEGACY" : "STRICT";
+    const rawInput = {
+      organizationId,
+      agentId: agent.id,
+      action,
+      resource: resource ?? undefined,
+      environment: environment ?? undefined,
+      riskLevel,
+      tool: toolName ?? undefined,
+    };
+    const input = agentRecord ? buildDecisionContext(rawInput, agentRecord, mode).matchInput : rawInput;
+    const resolved = resolveDecision(
+      resolveBestPermission(permissions, input, mode),
+      filterApplicablePolicies(policies, input, mode),
+      input
+    );
 
     findings.push(
       detectPolicyViolationAfterTheFact({
@@ -177,6 +205,19 @@ async function runDetectorsUnsafe(trigger: SecurityDetectorTrigger): Promise<voi
         policyDecision: resolved.decision,
         policyName: resolved.winningPolicySnapshot?.name,
         reason: resolved.reason,
+        traceId,
+      })
+    );
+  }
+
+  if (trigger.agentStatus) {
+    findings.push(
+      detectActivityWhileHalted({
+        agentId: agent.id,
+        agentName: agent.name,
+        agentStatus: trigger.agentStatus,
+        action,
+        status,
         traceId,
       })
     );

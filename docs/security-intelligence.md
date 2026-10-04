@@ -51,13 +51,25 @@ separate anomaly system — see `docs/cost-intelligence.md`.
 
 ## Deduplication (spec §6)
 
-A repeat trigger of the same `(agentId, type)` against an `OPEN` alert
-created within the last 24 hours updates that alert's `count` and
-`lastSeenAt` instead of creating a new row (`lib/security/repository.ts#upsertAlertFinding`).
+A repeat trigger of the same `(agentId, type, dedupeKey)` against an `OPEN`
+alert created within the last 24 hours updates that alert's `count` and
+`lastSeenAt` instead of creating a new alert (`lib/security/repository.ts#upsertAlertFinding`).
 Only the first, genuinely new alert is audit-logged and dispatched to
-webhooks — repeat triggers update the existing row silently, so
-acknowledging or resolving one alert's history stays readable instead of
-one line per repeat trigger.
+webhooks.
+
+**Evidence is never overwritten (P0).** Every trigger — first and repeat —
+is written as an append-only `SecurityAlertOccurrence` (timestamp, severity,
+confidence, title, description, redacted evidence, traceId), shown on the
+alert detail page. The alert row keeps its *original* evidence, title,
+description, and traceId; severity only ever goes up (a milder repeat can't
+downgrade a CRITICAL alert). `dedupeKey` (the action, tool, policy, or
+budget involved) keeps genuinely different findings of the same type as
+separate alerts. Find-or-create runs under a transaction-scoped advisory
+lock, so concurrent triggers can't create duplicate alerts.
+
+`ACTIVITY_WHILE_HALTED` (P0): a `PAUSED`/`STOPPED`/`ARCHIVED` agent reported
+(via `POST /api/v1/events`) an action it completed anyway — evidence the
+kill switch wasn't honored. Detection only; never worded as "blocked".
 
 If an alert of the same type is later resolved, the *next* trigger starts
 a fresh dedup lineage (a new `SecurityAlert` row) — a resolved alert never

@@ -1,5 +1,6 @@
-import type { ActivityStatus, PolicyDecision, RiskLevel } from "@prisma/client";
+import type { ActivityStatus, AgentStatus, PolicyDecision, RiskLevel } from "@prisma/client";
 import { SECURITY_ALERT_TYPES, type Finding } from "@/lib/security/types";
+import { normalizeKey } from "@/lib/telemetry/normalize";
 
 /**
  * Every detector is a pure function: given already-fetched, narrowly-
@@ -38,6 +39,7 @@ export function detectNewSensitiveAction(params: {
     }. First-time use of a sensitive action is worth a quick look — it may be expected (a new integration going live) or it may not be.`,
     evidence: { action: params.action, riskLevel: params.riskLevel, status: params.status },
     traceId: params.traceId,
+    dedupeKey: `action:${params.action}`,
   };
 }
 
@@ -97,6 +99,7 @@ export function detectFailureLoop(params: {
     description: `"${params.action}" failed ${params.failureCountInWindow} times in the last ${windowMinutes} minutes. Detected pattern: a retry loop against a failing dependency, or a misconfigured integration — worth checking before it burns further cost or hits a rate limit downstream.`,
     evidence: { action: params.action, failureCountInWindow: params.failureCountInWindow, windowMinutes, threshold },
     traceId: params.traceId,
+    dedupeKey: `action:${params.action}`,
   };
 }
 
@@ -126,6 +129,7 @@ export function detectNewToolUsage(params: {
       title: `${params.agentName} started using "${params.toolName}"`,
       description: `First time this agent has used the "${params.toolName}" tool. Usually expected when an agent is onboarded to a new tool or integration — flagged here so it's visible, not because it's inherently risky.`,
       evidence: { action: params.action, tool: params.toolName },
+      dedupeKey: `tool:${normalizeKey(params.toolName) ?? params.toolName}`,
     };
   }
 
@@ -142,6 +146,7 @@ export function detectNewToolUsage(params: {
     title: `${params.agentName} started using "${namespace}" actions`,
     description: `First time this agent has performed a ${namespaceLabel} action. Usually expected when an agent is onboarded to a new tool or integration — flagged here so it's visible, not because it's inherently risky.`,
     evidence: { action: params.action, namespace },
+    dedupeKey: `namespace:${namespace}`,
   };
 }
 
@@ -398,6 +403,7 @@ export function detectPolicyViolationAfterTheFact(params: {
     } would have blocked it. Aegis only received this after the fact via event ingestion (not the pre-flight evaluate check) and had no opportunity to prevent it. ${params.reason}`,
     evidence: { action: params.action, resource: params.resource ?? null, policyName: params.policyName ?? null },
     traceId: params.traceId,
+    dedupeKey: `action:${params.action}`,
     recommendedAction:
       "Review this agent's integration — route this action through the pre-flight /evaluate check so Aegis can act before it happens, not just detect it afterward.",
   };
@@ -443,6 +449,7 @@ export function detectPromptInjectionIndicator(params: {
     description: `Text reported alongside "${params.action}" contains a phrase commonly associated with prompt-injection attempts (e.g. instructions to ignore prior rules). This is a heuristic keyword match, not a confirmed injection — it may be a false positive (e.g. text that legitimately discusses this topic).`,
     evidence: { action: params.action, matchedPattern: matched.source },
     traceId: params.traceId,
+    dedupeKey: `action:${params.action}`,
     recommendedAction: "Review the source of this input and confirm the agent's actual behavior was not altered.",
   };
 }
@@ -476,6 +483,43 @@ export function detectCredentialExposureIndicator(params: {
       .join(", ")}) whose name looks like a credential/token/password/secret. Aegis redacted the value before storing it, but the credential was already sent over the wire and logged wherever the caller's own systems log this request.`,
     evidence: { action: params.action, fieldPaths: params.secretShapedKeyPaths },
     traceId: params.traceId,
+    dedupeKey: `action:${params.action}`,
     recommendedAction: "Rotate the exposed credential and stop including it in event metadata sent to Aegis.",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Activity while halted (P0 — kill-switch truthfulness). The agent was
+// STOPPED / PAUSED / ARCHIVED in Aegis, yet reported (POST /api/v1/events)
+// an action it completed. /evaluate refuses a halted agent, but Aegis has
+// no way to physically stop one that doesn't ask — so this is detection,
+// never a claim of enforcement.
+// ---------------------------------------------------------------------------
+
+const HALTED_AGENT_STATUSES: ReadonlySet<AgentStatus> = new Set<AgentStatus>(["STOPPED", "PAUSED", "ARCHIVED"]);
+
+export function detectActivityWhileHalted(params: {
+  agentId: string;
+  agentName: string;
+  agentStatus: AgentStatus;
+  action: string;
+  status: ActivityStatus;
+  traceId?: string | null;
+}): Finding | null {
+  if (!HALTED_AGENT_STATUSES.has(params.agentStatus)) return null;
+  // Self-reported as blocked/failed = it didn't actually go through.
+  if (params.status === "BLOCKED" || params.status === "FAILED") return null;
+
+  return {
+    type: SECURITY_ALERT_TYPES.ACTIVITY_WHILE_HALTED,
+    severity: params.agentStatus === "PAUSED" ? "HIGH" : "CRITICAL",
+    agentId: params.agentId,
+    title: `${params.agentName} reported activity while ${params.agentStatus.toLowerCase()}`,
+    description: `"${params.action}" was reported as completed while ${params.agentName} is ${params.agentStatus} in Aegis. Aegis refuses authorization requests from a ${params.agentStatus.toLowerCase()} agent, but this action was reported after the fact via event ingestion — the agent's integration did not honor the halt, and Aegis could not prevent it.`,
+    evidence: { action: params.action, agentStatus: params.agentStatus, reportedStatus: params.status },
+    traceId: params.traceId,
+    dedupeKey: `action:${params.action}`,
+    recommendedAction:
+      "Stop the agent process directly (revoke its API key or provider credentials) and route its actions through POST /api/v1/evaluate so the kill switch takes effect.",
   };
 }

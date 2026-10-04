@@ -20,7 +20,7 @@ const COLUMNS = [
       { href: "/docs", label: "Documentation" },
       { href: "/docs/api", label: "API reference" },
       { href: "/trust", label: "Trust & Security" },
-      { href: "/demo", label: "Live demo" },
+      { href: "/demo", label: "Demo (sample data)" },
       { href: "/contact", label: "Contact" },
     ],
   },

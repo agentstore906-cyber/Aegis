@@ -31,6 +31,7 @@ export const CAPABILITIES = [
   "view_billing",
   "manage_billing",
   "manage_budgets",
+  "manage_risk_control",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -49,6 +50,7 @@ const ROLE_CAPABILITIES: Record<MemberRole, Capability[]> = {
     "view_security",
     "resolve_security",
     "view_audit",
+    "manage_risk_control",
   ],
   // FINANCE can see billing status (it's financial data, like costs) but
   // cannot check out, change plans, or open the Paddle portal — only

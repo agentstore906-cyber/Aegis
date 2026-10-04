@@ -1,11 +1,11 @@
 import "server-only";
 
-import { InMemoryRateLimiter } from "@/lib/rate-limit/limiter";
+import { createRateLimiter } from "@/lib/rate-limit/postgres";
 import { createLeadSchema } from "@/lib/validation/lead";
 import * as repo from "@/lib/leads/repository";
 
 /** 5 submissions/hour per IP — generous for a real prospect, useless to a bot doing volume. */
-const leadRateLimiter = new InMemoryRateLimiter(5, 60 * 60 * 1000);
+const leadRateLimiter = createRateLimiter("leads", 5, 60 * 60 * 1000);
 
 export type SubmitLeadResult = { ok: true; id: string } | { ok: false; error: string };
 

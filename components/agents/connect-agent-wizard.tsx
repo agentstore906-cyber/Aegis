@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Bot, Sparkles, Wrench, Loader2, CheckCircle2, ArrowLeft, KeyRound } from "lucide-react";
+import { Bot, Sparkles, Loader2, CheckCircle2, ArrowLeft, KeyRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input, Label, FieldHint } from "@/components/ui/field";
@@ -19,7 +19,6 @@ type Step = "select" | "credential" | "choose" | "name" | "connecting" | "connec
 const PROVIDERS: { type: ConnectorType; label: string; description: string; icon: typeof Bot }[] = [
   { type: "OPENAI", label: "OpenAI", description: "Connect an Assistant with an API key.", icon: Sparkles },
   { type: "ANTHROPIC", label: "Anthropic", description: "Connect with an API key.", icon: Bot },
-  { type: "CUSTOM_SDK", label: "Custom Agent", description: "Any other agent, via the Aegis SDK.", icon: Wrench },
 ];
 
 const CREDENTIAL_HELP: Record<"OPENAI" | "ANTHROPIC", { label: string; placeholder: string; href: string }> = {
@@ -27,11 +26,14 @@ const CREDENTIAL_HELP: Record<"OPENAI" | "ANTHROPIC", { label: string; placehold
   ANTHROPIC: { label: "Anthropic API key", placeholder: "sk-ant-...", href: "https://console.anthropic.com/settings/keys" },
 };
 
-/** Purely a display sequence for the connected screen — every item shown was actually true by the time this renders, never a fabricated "in progress" state. */
+/**
+ * What was actually verified by the time the connected screen renders. A provider credential check proves the
+ * PROVIDER accepted the key; it does not prove the agent talks to Aegis, so "monitoring" is never claimed here.
+ */
 const CONNECT_STEPS_LABEL: Record<ConnectorType, string[]> = {
-  OPENAI: ["Authentication", "Connection verified", "Agent found", "Monitoring ready"],
-  ANTHROPIC: ["Authentication", "Connection verified", "Monitoring ready"],
-  CUSTOM_SDK: ["Connection registered", "Monitoring ready"],
+  OPENAI: ["Provider credential verified", "Agent found"],
+  ANTHROPIC: ["Provider credential verified"],
+  CUSTOM_SDK: ["Connection record created"],
 };
 
 export function ConnectAgentWizard({ atLimit }: { atLimit: boolean }) {
@@ -140,9 +142,9 @@ export function ConnectAgentWizard({ atLimit }: { atLimit: boolean }) {
     <div className="rounded-lg border border-border bg-surface p-6">
       {step === "select" && (
         <div>
-          <h2 className="text-sm font-semibold text-foreground">Connect an AI agent</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Connect an agent you already run.</p>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <h2 className="text-sm font-semibold text-foreground">Connect with a provider key</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Aegis checks the key with the provider and finds the agent. This does not by itself send Aegis any activity.</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
             {PROVIDERS.map(({ type, label, description, icon: Icon }) => (
               <button
                 key={type}
@@ -250,7 +252,7 @@ export function ConnectAgentWizard({ atLimit }: { atLimit: boolean }) {
         <div>
           <div className="flex items-center gap-2">
             <CheckCircle2 className="size-5 text-success" aria-hidden="true" />
-            <h2 className="text-sm font-semibold text-foreground">Agent connected</h2>
+            <h2 className="text-sm font-semibold text-foreground">Credential verified</h2>
           </div>
           <p className="mt-1 text-base font-medium text-foreground">{connected.agentName}</p>
 
@@ -303,9 +305,7 @@ export function ConnectAgentWizard({ atLimit }: { atLimit: boolean }) {
           )}
 
           <p className="mt-5 text-sm text-muted-foreground">
-            {provider === "CUSTOM_SDK"
-              ? "Monitoring is ready. Aegis is waiting for the first event from your agent."
-              : "Monitoring is ready. Add the Aegis SDK to this agent to start sending activity."}
+            {"Aegis has not received anything from this agent yet. Add the Aegis SDK to your agent to start sending activity; the agent page shows what has actually arrived."}
           </p>
 
           <div className="mt-5">

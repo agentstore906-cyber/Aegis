@@ -68,8 +68,17 @@ every caller (the kill switch, the firewall) is written to handle
 `ARCHIVED`) is Aegis's *recorded* control state — what an operator wants,
 not proof of what the agent is doing. Every transition:
 
+0. **Changes Aegis's own answers (P0).** From the moment the status is
+   `PAUSED`, `STOPPED`, or `ARCHIVED`, `evaluateAgentAction()` returns
+   `BLOCK` (`decisionSource: CONTROL`, `agentStatus` recorded on the
+   `PolicyEvaluation`) for every authorization request, regardless of
+   permissions, policies, or approvals. This is real **cooperative**
+   enforcement: any integration that calls `/evaluate` before acting stops.
+   An agent that keeps acting without asking is caught after the fact if it
+   reports the action (`ACTIVITY_WHILE_HALTED` alert).
 1. Asks the enforcement connector to actually pause/resume/stop the
-   agent (today: always `enforced: false`).
+   agent's process (today: always `enforced: false` — Aegis still can't
+   reach into the external process).
 2. Writes the new status to the `Agent` row regardless.
 3. Writes an immutable `AuditEvent` with the previous state, new state,
    actor, reason, and the enforcement outcome.

@@ -3,15 +3,25 @@ import { readJsonBody } from "@/lib/api/request";
 import { withIdempotency } from "@/lib/api/idempotency";
 import { ApiError } from "@/lib/api/errors";
 import { eventIngestSchema } from "@/lib/validation/api";
-import { getAgentBySlugForIngestion } from "@/lib/agents/queries";
-import { ingestActivityEvent } from "@/lib/activity/ingest";
+import { resolveAuthorizedAgent } from "@/lib/api/agent-access";
+import { ClientEventIdConflictError, ingestActivityEvent } from "@/lib/activity/ingest";
+import { LineageReferenceError } from "@/lib/telemetry/lineage";
+import { touchConnection } from "@/lib/agents/handshake";
+
+function mapIngestError(error: unknown): never {
+  if (error instanceof LineageReferenceError) throw new ApiError(error.code, error.message, 400);
+  if (error instanceof ClientEventIdConflictError) throw new ApiError("CLIENT_EVENT_ID_CONFLICT", error.message, 409);
+  throw error;
+}
 
 const MAX_BODY_BYTES = 32 * 1024;
 
 /**
  * POST /api/v1/events — "here's what my agent already did." Records an
  * ActivityEvent directly; does not evaluate a policy (see /evaluate for
- * that). See docs/api.md for the full request/response contract.
+ * that). P1: optional structured telemetry (destination, data classes,
+ * volume, end user, parent/child lineage, clientEventId dedup) — see
+ * docs/AEGIS_P1_DATA_FOUNDATION.md and docs/api.md.
  */
 export const POST = withApiAuth("events.create", "events:write", async (request, ctx) => {
   const rawBody = await readJsonBody(request, MAX_BODY_BYTES);
@@ -20,10 +30,7 @@ export const POST = withApiAuth("events.create", "events:write", async (request,
     throw new ApiError("INVALID_REQUEST", parsed.error.issues[0]?.message ?? "Invalid request body.", 400);
   }
 
-  const agent = await getAgentBySlugForIngestion(ctx.organization.id, parsed.data.agent);
-  if (!agent) {
-    throw new ApiError("AGENT_NOT_FOUND", `Agent \`${parsed.data.agent}\` was not found in this organization.`, 404);
-  }
+  const agent = await resolveAuthorizedAgent(ctx.apiKey, ctx.organization.id, parsed.data.agent);
   if (agent.connection?.status === "DISCONNECTED") {
     throw new ApiError(
       "AGENT_CONNECTION_DISCONNECTED",
@@ -32,6 +39,8 @@ export const POST = withApiAuth("events.create", "events:write", async (request,
     );
   }
   ctx.setAgentId(agent.id);
+  // Contact evidence: a key bound to this agent reached Aegis. Never fails the request.
+  await touchConnection(agent, ctx.apiKey, { activity: true }).catch(() => undefined);
 
   const idempotencyKey = request.headers.get("idempotency-key");
 
@@ -44,8 +53,20 @@ export const POST = withApiAuth("events.create", "events:write", async (request,
       requestBody: rawBody,
     },
     async () => {
-      const event = await ingestActivityEvent(ctx.organization.id, agent, parsed.data);
-      return { status: 201, body: { id: event.id, traceId: event.traceId } };
+      const event = await ingestActivityEvent(ctx.organization.id, agent, parsed.data, {
+        apiKeyAgentId: ctx.apiKey.agentId,
+      }).catch(mapIngestError);
+      // 201 for a newly recorded event; 200 when this delivery repeated an
+      // already-recorded clientEventId (nothing new was written).
+      return {
+        status: event.duplicate ? 200 : 201,
+        body: {
+          id: event.id,
+          traceId: event.traceId,
+          parentEventId: event.parentEventId,
+          duplicate: event.duplicate,
+        },
+      };
     }
   );
 

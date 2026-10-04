@@ -6,7 +6,7 @@ import { hashPassword } from "@/lib/auth/password";
 import { signIn, signOut } from "@/lib/auth";
 import { trackEvent } from "@/lib/analytics/track";
 import { getClientIp } from "@/lib/http/client-ip";
-import { InMemoryRateLimiter } from "@/lib/rate-limit/limiter";
+import { createRateLimiter } from "@/lib/rate-limit/postgres";
 
 /**
  * In-process, per-IP throttles on the two unauthenticated auth entry points.
@@ -16,8 +16,8 @@ import { InMemoryRateLimiter } from "@/lib/rate-limit/limiter";
  * allow up to the limit. Swap in a Redis-backed `RateLimiter` for that case —
  * no call site here would need to change.
  */
-const signInRateLimiter = new InMemoryRateLimiter(10, 10 * 60 * 1000); // 10 attempts / 10 min / IP — generous for a real user, useless for scripted guessing
-const signUpRateLimiter = new InMemoryRateLimiter(5, 60 * 60 * 1000); // 5 accounts / hour / IP — mirrors the leads form's anti-spam threshold
+const signInRateLimiter = createRateLimiter("auth.sign_in", 10, 10 * 60 * 1000); // 10 attempts / 10 min / IP — generous for a real user, useless for scripted guessing
+const signUpRateLimiter = createRateLimiter("auth.sign_up", 5, 60 * 60 * 1000); // 5 accounts / hour / IP — mirrors the leads form's anti-spam threshold
 
 export type SignUpState = {
   error?: string;

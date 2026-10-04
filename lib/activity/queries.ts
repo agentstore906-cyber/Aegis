@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import type { ActivityFiltersInput } from "@/lib/validation/activity";
+import { normalizeKey } from "@/lib/telemetry/normalize";
 
 const PAGE_SIZE = 25;
 
@@ -33,7 +34,7 @@ export async function listActivityEvents(
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.riskLevel ? { riskLevel: filters.riskLevel } : {}),
     ...(filters.eventType ? { eventType: filters.eventType } : {}),
-    ...(filters.toolName ? { toolName: filters.toolName } : {}),
+    ...(filters.toolName ? { toolKey: normalizeKey(filters.toolName) ?? filters.toolName } : {}),
     ...(since ? { timestamp: { gte: since } } : {}),
     ...(filters.q
       ? {
@@ -66,16 +67,20 @@ export async function listActivityEvents(
   };
 }
 
-/** Distinct, non-null tool names reported for this org — populates the Activity page's Tool filter. */
+/**
+ * Distinct tools reported for this org — populates the Activity page's Tool
+ * filter. One entry per normalized tool key (P1), so "CRM" and "crm" are one
+ * tool, not two.
+ */
 export async function listDistinctToolNames(organizationId: string): Promise<string[]> {
   const rows = await prisma.activityEvent.findMany({
-    where: { organizationId, toolName: { not: null } },
-    distinct: ["toolName"],
-    select: { toolName: true },
-    orderBy: { toolName: "asc" },
+    where: { organizationId, toolKey: { not: null } },
+    distinct: ["toolKey"],
+    select: { toolKey: true },
+    orderBy: { toolKey: "asc" },
     take: 100,
   });
-  return rows.map((r) => r.toolName).filter((name): name is string => name !== null);
+  return rows.map((r) => r.toolKey).filter((key): key is string => key !== null);
 }
 
 export async function getActivityEvent(organizationId: string, id: string) {

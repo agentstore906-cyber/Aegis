@@ -3,13 +3,16 @@ import { SignUpForm } from "@/components/auth/sign-up-form";
 
 export const metadata: Metadata = { title: "Create your account" };
 
-export default function SignUpPage() {
+export default async function SignUpPage({ searchParams }: { searchParams: Promise<{ from?: string }> }) {
+  const { from } = await searchParams;
   return (
     <>
       <div className="mb-6 text-center">
         <h1 className="text-lg font-semibold text-foreground">Create your account</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Start controlling your AI agents in minutes.
+          {from === "scan"
+            ? "Your risk report will be saved to your new workspace."
+            : "Start controlling your AI agents in minutes."}
         </p>
       </div>
       <SignUpForm />

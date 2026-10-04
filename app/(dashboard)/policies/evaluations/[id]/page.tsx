@@ -10,6 +10,11 @@ import { formatDateTime } from "@/lib/utils";
 import { DecisionBadge } from "@/components/dashboard/status-badges";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { MetadataView } from "@/components/activity/metadata-view";
+import { RiskAssessmentCard } from "@/components/risk/risk-assessment-card";
+import { OpenIncidentButton } from "@/components/incidents/incident-actions";
+import { canManageIncidents } from "@/lib/incidents/authorization";
+import type { RiskAssessment } from "@/lib/risk/types";
+import type { RiskControlRecord } from "@/lib/risk/record";
 
 export const metadata: Metadata = { title: "Policy evaluation" };
 
@@ -18,7 +23,7 @@ export default async function PolicyEvaluationDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { organization } = await requireActiveOrganization();
+  const { organization, role } = await requireActiveOrganization();
   const { id } = await params;
   const evaluation = await getPolicyEvaluation(organization.id, id);
 
@@ -55,6 +60,12 @@ export default async function PolicyEvaluationDetailPage({
         <DecisionBadge decision={evaluation.decision} />
       </div>
 
+      {canManageIncidents(role) && (
+        <div className="mb-6">
+          <OpenIncidentButton anchorType="POLICY_EVALUATION" anchorId={evaluation.id} />
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Reason</CardTitle>
@@ -79,6 +90,11 @@ export default async function PolicyEvaluationDetailPage({
           </dl>
         </CardContent>
       </Card>
+
+      <RiskAssessmentCard
+        assessment={(evaluation.riskAssessment as unknown as RiskAssessment | null) ?? null}
+        control={(evaluation.riskControl as unknown as RiskControlRecord | null) ?? null}
+      />
 
       {permission && (
         <Card className="mt-4">

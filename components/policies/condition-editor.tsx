@@ -77,6 +77,11 @@ export function ConditionEditor({
   return (
     <div>
       <input type="hidden" name="conditionsJson" value={JSON.stringify(conditionsToJsonValue(conditions))} readOnly />
+      <datalist id="policy-condition-fields">
+        {["context.", "action", "resource", "environment", "tool", "riskLevel", "destination", "service", "dataSensitivity", "recordCount", "byteCount", "data.PII", "data.FINANCIAL", "data.HEALTH", "data.CREDENTIALS", "data.CONFIDENTIAL"].map((f) => (
+          <option key={f} value={f} />
+        ))}
+      </datalist>
 
       {conditions.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -93,7 +98,8 @@ export function ConditionEditor({
                 <Input
                   id={`cond-field-${index}`}
                   value={condition.field}
-                  placeholder="context.amount"
+                  placeholder="context.amount, destination, data.PII, recordCount"
+                  list="policy-condition-fields"
                   onChange={(e) => updateCondition(index, { field: e.target.value })}
                 />
               </div>

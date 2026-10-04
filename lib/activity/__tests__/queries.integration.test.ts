@@ -73,6 +73,7 @@ beforeAll(async () => {
     action: "crm.contact.read",
     resource: `contact:${i}`,
     toolName: "CRM",
+    toolKey: "crm",
     status: "ALLOWED" as const,
     riskLevel: "LOW" as const,
     traceId: i === 0 ? `${RUN_ID}-trace` : undefined,
@@ -90,6 +91,7 @@ beforeAll(async () => {
       action: "crm.contact.delete",
       resource: "contact:blocked-one",
       toolName: "CRM",
+      toolKey: "crm",
       status: "BLOCKED",
       riskLevel: "HIGH",
       traceId: `${RUN_ID}-trace`,
@@ -105,6 +107,7 @@ beforeAll(async () => {
       action: "email.send",
       resource: "customer:4821",
       toolName: "Gmail",
+      toolKey: "gmail",
       status: "ALLOWED",
       riskLevel: "LOW",
       timestamp: new Date(Date.now() - 90_000),
@@ -119,6 +122,7 @@ beforeAll(async () => {
       action: "crm.contact.read",
       resource: "contact:org-b",
       toolName: "CRM",
+      toolKey: "crm",
       status: "ALLOWED",
       riskLevel: "LOW",
       timestamp: new Date(),
@@ -269,12 +273,13 @@ describe("getActivityByTraceId", () => {
 });
 
 describe("listDistinctToolNames", () => {
-  it("returns only this organization's distinct, non-null tool names", async () => {
+  it("returns only this organization's distinct tools, one entry per normalized key (P1)", async () => {
     const names = await listDistinctToolNames(orgA.id);
-    expect(names).toContain("CRM");
-    expect(names).toContain("Gmail");
+    expect(names).toContain("crm");
+    expect(names).toContain("gmail");
+    expect(names.filter((n) => n === "crm")).toHaveLength(1);
 
     const orgBNames = await listDistinctToolNames(orgB.id);
-    expect(orgBNames).not.toContain("Gmail");
+    expect(orgBNames).not.toContain("gmail");
   });
 });

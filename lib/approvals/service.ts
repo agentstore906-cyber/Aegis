@@ -11,8 +11,10 @@ import {
   ApprovalNotFoundError,
 } from "@/lib/approvals/types";
 import { getApprovalRequest } from "@/lib/approvals/repository";
+import { APPROVAL_EXECUTION_TTL_MS } from "@/lib/approvals/binding";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 import { trackEvent } from "@/lib/analytics/track";
+import { scheduleTrustEvaluation } from "@/lib/trust/evaluate";
 
 /**
  * Phase-4-ready service layer: these are the exact functions a future
@@ -96,7 +98,16 @@ export async function resolveApproval(
         status: "PENDING",
         OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
       },
-      data: { status: targetStatus, resolvedAt: now },
+      // APPROVED opens the single-use execution window (lib/approvals/binding.ts):
+      // the agent must consume the approval via POST /api/v1/evaluate with
+      // `approvalRequestId` before it closes.
+      data: {
+        status: targetStatus,
+        resolvedAt: now,
+        ...(decision === "APPROVED"
+          ? { executionExpiresAt: new Date(now.getTime() + APPROVAL_EXECUTION_TTL_MS) }
+          : {}),
+      },
     });
 
     if (updated.count === 0) {
@@ -154,6 +165,9 @@ export async function resolveApproval(
         organizationId,
         agentId: request.agentId,
         eventType: "SYSTEM",
+        // Provenance (P1): a human's decision recorded by Aegis — not an
+        // agent-reported event, which is what the "api" default means.
+        source: "approval_resolution",
         action: DECISION_TO_ACTION[decision],
         resource: request.resource,
         status: decision === "APPROVED" ? "ALLOWED" : "BLOCKED",
@@ -175,6 +189,12 @@ export async function resolveApproval(
       throw new ApprovalAlreadyResolvedError(outcome.status);
     case "resolved":
       trackEvent("approval_resolved", { organizationId, decision });
+      if (decision === "REJECTED") {
+        scheduleTrustEvaluation("approval", organizationId, outcome.request.agentId, {
+          trigger: "APPROVAL_DECISION",
+          triggerRef: outcome.request.id,
+        });
+      }
       await dispatchWebhookEvent(organizationId, DECISION_TO_WEBHOOK_EVENT[decision], {
         approvalRequestId: outcome.request.id,
         agentId: outcome.request.agentId,

@@ -17,6 +17,7 @@ const PUBLIC_ROUTES = [
   "/docs/deployment",
   "/docs/api",
   "/docs/sdk",
+  "/scan",
   "/demo",
   "/sign-in",
   "/sign-up",

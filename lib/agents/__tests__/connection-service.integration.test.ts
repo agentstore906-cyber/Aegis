@@ -119,7 +119,9 @@ describe("connectProviderAgent — CUSTOM_SDK", () => {
     const agent = await prisma.agent.findUniqueOrThrow({ where: { id: result.agentId }, include: { connection: true } });
     expect(agent.modelProvider).toBe("Custom Agent");
     expect(agent.connection?.connectorType).toBe("CUSTOM_SDK");
-    expect(agent.connection?.status).toBe("CONNECTED");
+    // Waiting, not connected: nothing has contacted Aegis with the new credential yet.
+    expect(agent.connection?.status).toBe("CONNECTING");
+    expect(agent.connection?.firstHandshakeAt).toBeNull();
     expect(agent.connection?.credentialCiphertext).toBeNull();
     expect(agent.connection?.apiKeyId).not.toBeNull();
 

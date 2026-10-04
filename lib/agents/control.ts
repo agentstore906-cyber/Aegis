@@ -4,7 +4,10 @@ import { prisma } from "@/lib/db";
 import { recordAuditEvent } from "@/lib/audit/service";
 import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
+import { evaluateTrust } from "@/lib/trust/evaluate";
 import { getEnforcementConnector } from "@/lib/enforcement/registry";
+import { canResumeStoppedAgent } from "@/lib/agents/authorization";
+import type { MemberRole } from "@prisma/client";
 import type { AgentControlAction, EnforcementOutcome } from "@/lib/enforcement/types";
 
 export type AgentControlState = "ACTIVE" | "PAUSED" | "STOPPED";
@@ -31,6 +34,20 @@ export class AgentNotFoundError extends Error {
   constructor() {
     super("Agent not found.");
     this.name = "AgentNotFoundError";
+  }
+}
+
+export class AgentResumeForbiddenError extends Error {
+  constructor() {
+    super("This agent was STOPPED. Only owners, admins and security members can resume a stopped agent; use Pause for temporary holds.");
+    this.name = "AgentResumeForbiddenError";
+  }
+}
+
+export class AgentStatusConflictError extends Error {
+  constructor() {
+    super("This agent's status changed while you were acting. Reload and try again.");
+    this.name = "AgentStatusConflictError";
   }
 }
 
@@ -67,19 +84,26 @@ export async function setAgentControlState(
   agentSlug: string,
   status: AgentControlState,
   actorUserId: string,
-  reason?: string
+  reason?: string,
+  options: { actorRole?: MemberRole } = {}
 ): Promise<SetAgentControlStateResult> {
   const agent = await prisma.agent.findUnique({
     where: { organizationId_slug: { organizationId, slug: agentSlug } },
   });
   if (!agent) throw new AgentNotFoundError();
   if (agent.status === "ARCHIVED") throw new AgentArchivedError();
+  // Separation of duties: leaving STOPPED needs resolve_security (the action layer always passes the actor's role).
+  if (options.actorRole && agent.status === "STOPPED" && status !== "STOPPED" && !canResumeStoppedAgent(options.actorRole)) {
+    throw new AgentResumeForbiddenError();
+  }
 
   const connector = getEnforcementConnector(agent);
   const outcome = await connector.control(agent.id, CONTROL_STATE_TO_ACTION[status]);
 
   await prisma.$transaction(async (tx) => {
-    await tx.agent.update({ where: { id: agent.id }, data: { status } });
+    // Compare-and-set on the status that was checked above, so a concurrent change (or the check it relied on) can never be overwritten.
+    const moved = await tx.agent.updateMany({ where: { id: agent.id, organizationId, status: agent.status }, data: { status } });
+    if (moved.count !== 1) throw new AgentStatusConflictError();
 
     await recordAuditEvent(tx, {
       organizationId,
@@ -99,6 +123,13 @@ export async function setAgentControlState(
       },
     });
   });
+
+  // Trust (P3): a pause/stop restricts the agent, a resume lifts it. Awaited so the UI reflects it on the next read; never fails the control action.
+  try {
+    await evaluateTrust(organizationId, agent.id, { trigger: "OPERATOR_CONTROL", triggerRef: `${agent.status}>${status}` });
+  } catch (error) {
+    console.error(JSON.stringify({ msg: "trust_evaluation_failed", agentId: agent.id, error: String(error) }));
+  }
 
   await dispatchWebhookEvent(organizationId, CONTROL_STATE_TO_WEBHOOK_EVENT[status], {
     agentId: agent.id,

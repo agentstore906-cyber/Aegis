@@ -14,13 +14,14 @@ vi.mock("@/lib/agents/connect-actions", () => ({
 import { ConnectAgentWizard } from "@/components/agents/connect-agent-wizard";
 
 describe("<ConnectAgentWizard>", () => {
-  it("opens on provider selection with exactly the providers Aegis actually supports — never a 'Create Agent' option", () => {
+  it("opens on provider selection with exactly the provider-key connectors Aegis supports — never a 'Create Agent' option", () => {
     const markup = renderToStaticMarkup(<ConnectAgentWizard atLimit={false} />);
 
-    expect(markup).toContain("Connect an AI agent");
+    expect(markup).toContain("Connect with a provider key");
     expect(markup).toContain("OpenAI");
     expect(markup).toContain("Anthropic");
-    expect(markup).toContain("Custom Agent");
+    // Custom agents connect through the main flow (a real handshake), not here.
+    expect(markup).not.toContain("Custom Agent");
     expect(markup).not.toMatch(/create agent/i);
   });
 
@@ -36,6 +37,6 @@ describe("<ConnectAgentWizard>", () => {
     const markup = renderToStaticMarkup(<ConnectAgentWizard atLimit={true} />);
 
     expect(markup).toMatch(/agent limit/i);
-    expect(markup).not.toContain("Connect an AI agent");
+    expect(markup).not.toContain("Connect with a provider key");
   });
 });

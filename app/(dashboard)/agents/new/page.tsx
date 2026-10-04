@@ -8,6 +8,7 @@ import { prisma } from "@/lib/db";
 import { getPlan } from "@/lib/billing/plans";
 
 import { PageHeader } from "@/components/dashboard/page-header";
+import { AgentConnectionWizard } from "@/components/agents/agent-connection-wizard";
 import { ConnectAgentWizard } from "@/components/agents/connect-agent-wizard";
 import { UsageBar } from "@/components/billing/usage-bar";
 import { Alert } from "@/components/ui/alert";
@@ -26,10 +27,7 @@ export default async function NewAgentPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader
-        title="Connect agent"
-        description="Connect an agent you already run — Aegis verifies the connection and starts monitoring automatically."
-      />
+      <PageHeader title="Connect agent" description="Your agent stays yours. Aegis becomes its control layer." />
       {plan.agentLimit !== null && (
         <div className="mb-4">
           {atLimit ? (
@@ -45,7 +43,19 @@ export default async function NewAgentPage() {
           )}
         </div>
       )}
-      <ConnectAgentWizard atLimit={atLimit} />
+      <AgentConnectionWizard atLimit={atLimit} />
+
+      {!atLimit && (
+        <details className="group mt-6 rounded-lg border border-border bg-surface">
+          <summary className="focus-ring cursor-pointer list-none rounded-lg px-5 py-3.5 text-sm font-medium text-foreground">
+            Advanced setup
+            <span className="ml-2 text-xs font-normal text-muted-foreground">Connect with an OpenAI or Anthropic API key</span>
+          </summary>
+          <div className="border-t border-border p-4">
+            <ConnectAgentWizard atLimit={false} />
+          </div>
+        </details>
+      )}
     </div>
   );
 }

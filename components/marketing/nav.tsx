@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/#preview", label: "Product" },
   { href: "/#solution", label: "Solutions" },
   { href: "/#developers", label: "Developers" },
+  { href: "/scan", label: "Free scanner" },
   { href: "/pricing", label: "Pricing" },
 ];
 
@@ -35,17 +36,26 @@ export function MarketingNav() {
           <ButtonLink href="/sign-in" variant="ghost" size="sm">
             Sign In
           </ButtonLink>
-          <ButtonLink href="/contact" variant="secondary" size="sm">
+          <ButtonLink href="/contact" variant="ghost" size="sm">
             Book a Demo
           </ButtonLink>
           <TrackedButtonLink
             href="/sign-up"
-            variant="primary"
+            variant="secondary"
             size="sm"
             event="landing_cta_clicked"
             eventProps={{ source: "nav" }}
           >
             Start Free
+          </TrackedButtonLink>
+          <TrackedButtonLink
+            href="/scan"
+            variant="primary"
+            size="sm"
+            event="landing_cta_clicked"
+            eventProps={{ source: "nav_scan" }}
+          >
+            Scan your agent
           </TrackedButtonLink>
         </div>
 

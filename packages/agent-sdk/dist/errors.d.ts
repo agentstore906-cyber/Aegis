@@ -36,4 +36,42 @@ export declare class AegisApiError extends AegisError {
     readonly status: number;
     constructor(message: string, code: string, status: number, requestId?: string);
 }
+/** guard(): Aegis returned BLOCK (or an approval was rejected/expired). The tool was NOT run. */
+export declare class AegisBlockedError extends AegisError {
+    readonly decision: {
+        decision: string;
+        evaluationId: string;
+        traceId: string;
+        reason?: string;
+    };
+    constructor(decision: {
+        decision: string;
+        evaluationId: string;
+        traceId: string;
+        reason?: string;
+    }, message?: string);
+}
+/** guard(): the action needs a human decision first. The tool was NOT run. `approvalRequestId` is the request to wait on. */
+export declare class AegisApprovalRequiredError extends AegisError {
+    readonly decision: {
+        decision: string;
+        evaluationId: string;
+        traceId: string;
+        approvalRequestId: string;
+        reason?: string;
+    };
+    readonly approvalRequestId: string;
+    constructor(decision: {
+        decision: string;
+        evaluationId: string;
+        traceId: string;
+        approvalRequestId: string;
+        reason?: string;
+    });
+}
+/** guard(): Aegis could not be reached and guard() failed closed. The tool was NOT run. */
+export declare class AegisUnavailableError extends AegisError {
+    readonly cause?: unknown | undefined;
+    constructor(message: string, cause?: unknown | undefined);
+}
 //# sourceMappingURL=errors.d.ts.map

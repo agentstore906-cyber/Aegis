@@ -76,3 +76,35 @@ export class AegisApiError extends AegisError {
     this.name = "AegisApiError";
   }
 }
+
+/** guard(): Aegis returned BLOCK (or an approval was rejected/expired). The tool was NOT run. */
+export class AegisBlockedError extends AegisError {
+  constructor(
+    public readonly decision: { decision: string; evaluationId: string; traceId: string; reason?: string },
+    message?: string
+  ) {
+    super(message ?? decision.reason ?? "Aegis blocked this action.");
+    this.name = "AegisBlockedError";
+  }
+}
+
+/** guard(): the action needs a human decision first. The tool was NOT run. `approvalRequestId` is the request to wait on. */
+export class AegisApprovalRequiredError extends AegisError {
+  readonly approvalRequestId: string;
+  constructor(public readonly decision: { decision: string; evaluationId: string; traceId: string; approvalRequestId: string; reason?: string }) {
+    super(decision.reason ?? "This action requires approval.");
+    this.name = "AegisApprovalRequiredError";
+    this.approvalRequestId = decision.approvalRequestId;
+  }
+}
+
+/** guard(): Aegis could not be reached and guard() failed closed. The tool was NOT run. */
+export class AegisUnavailableError extends AegisError {
+  constructor(
+    message: string,
+    public readonly cause?: unknown
+  ) {
+    super(message);
+    this.name = "AegisUnavailableError";
+  }
+}

@@ -145,11 +145,35 @@ model Organization {
   ssoEnabled  Boolean @default(false)
   ssoProvider String?
 
+  // Policy-matching compatibility escape hatch (P0 security fix, see
+  // docs/AEGIS_P0_IMPLEMENTATION.md §2). false (the default for every org,
+  // existing and new) = STRICT matching: security-sensitive context comes
+  // from the server-side Agent record, and a field/condition the caller
+  // omitted can never let an action slip past a BLOCK/REQUIRE_APPROVAL/
+  // ALERT policy. true = the pre-P0 matcher (caller-declared context,
+  // omitted field = policy does not match). Deliberately has no dashboard
+  // toggle: it weakens security, so it's a support-applied (direct DB update,
+  // not in the in-app audit trail — log it externally), temporary migration aid — never something to flip casually.
+  legacyPolicyMatching Boolean @default(false)
+
+  // P5 risk-driven control (docs/AEGIS_P5_CONTROL.md). OBSERVE (the default
+  // for every org, existing and new) = risk is assessed and compared with the
+  // real decision but never changes it. Medium/High say what a MEDIUM / HIGH-or-
+  // CRITICAL assessment maps to; they also drive the shadow "recommended"
+  // decision while in OBSERVE, so an org can see "would have blocked" before
+  // enabling anything. Changes are audited (organization.risk_control_update).
+  riskControlMode  RiskControlMode @default(OBSERVE)
+  riskMediumAction PolicyDecision  @default(ALERT)
+  riskHighAction   PolicyDecision  @default(REQUIRE_APPROVAL)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   members           OrganizationMember[]
   agents            Agent[]
+  riskReviewLabels  RiskReviewLabel[]
+  incidents         Incident[]
+  incidentActivity  IncidentActivity[]
   activityEvents    ActivityEvent[]
   agentPermissions  AgentPermission[]
   policies          Policy[]
@@ -165,6 +189,11 @@ model Organization {
   featureRequests   FeatureRequest[]
   budgets           Budget[]
   agentConnections  AgentConnection[]
+  activityRollups   AgentActivityRollup[]
+  baselines         AgentBaseline[]
+  deviations        BehavioralDeviation[]
+  trustStates       AgentTrustState[]
+  trustTransitions  AgentTrustTransition[]
 
   @@map("organizations")
 }
@@ -217,6 +246,22 @@ enum RiskLevel {
   CRITICAL
 }
 
+// How an organization lets the risk engine influence decisions.
+//   OBSERVE            record only (shadow); never changes a decision
+//   APPROVAL_REQUIRED  risk may add ALERT / REQUIRE_APPROVAL, never BLOCK
+//   ENFORCE            risk may also BLOCK, as configured
+enum RiskControlMode {
+  OBSERVE
+  APPROVAL_REQUIRED
+  ENFORCE
+}
+
+enum RiskReviewLabelValue {
+  JUSTIFIED
+  FALSE_POSITIVE
+  UNSURE
+}
+
 enum Environment {
   PRODUCTION
   STAGING
@@ -246,8 +291,8 @@ model Agent {
   updatedAt    DateTime  @updatedAt
   lastActiveAt DateTime?
 
-  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  team              Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team              Team?                  @relation(fields: [teamId], references: [id], onDelete: SetNull)
   tools             AgentTool[]
   activityEvents    ActivityEvent[]
   permissions       AgentPermission[]
@@ -258,6 +303,14 @@ model Agent {
   securityAlerts    SecurityAlert[]
   budgets           Budget[]
   connection        AgentConnection?
+  boundApiKeys      ApiKey[]
+  activityRollups   AgentActivityRollup[]
+  behaviorState     AgentBehaviorState?
+  baselines         AgentBaseline[]
+  deviations        BehavioralDeviation[]
+  trustState        AgentTrustState?
+  trustTransitions  AgentTrustTransition[]
+  incidents         Incident[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, status])
@@ -319,6 +372,11 @@ model AgentConnection {
   credentialCiphertext String? @db.Text
   credentialIv         String?
   credentialAuthTag    String?
+  // Which key encrypted the credential — see lib/connectors/crypto.ts.
+  // Null = written before key versioning existed (always the
+  // AUTH_SECRET-derived key at the time). Lets the key rotate without
+  // making stored credentials unreadable.
+  credentialKeyId      String?
 
   // The Aegis API key auto-provisioned for this connection's SDK
   // ingestion, if one was created at connect time (CUSTOM_SDK only) — lets
@@ -335,6 +393,11 @@ model AgentConnection {
 
   connectedAt       DateTime  @default(now())
   disconnectedAt    DateTime?
+  // Handshake evidence (docs/AEGIS_AGENT_CONNECTION.md). Set ONLY when a request authenticated with this
+  // connection's own agent-bound credential actually reached Aegis: firstHandshakeAt once, lastSeenAt on
+  // every later contact (written at most once a minute). Null = the agent has never contacted Aegis.
+  firstHandshakeAt  DateTime?
+  lastSeenAt        DateTime?
   lastVerifiedAt    DateTime?
   lastHealthCheckAt DateTime?
   lastHealthError   String?   @db.Text
@@ -396,6 +459,41 @@ enum ActivityStatus {
   WARNING
 }
 
+// P1 — normalized vocabularies (lib/telemetry/normalize.ts). One
+// representation per concept; callers' spellings are mapped onto these.
+
+// The result of an action an agent reports it performed — distinct from
+// ActivityStatus (which also encodes Aegis's *decision* for rows created by
+// /evaluate). Null on decision rows: nothing has executed yet.
+enum EventOutcome {
+  SUCCESS
+  FAILURE
+  BLOCKED
+  WARNING
+}
+
+// What kind of data an action touched. Caller-declared; an event may carry
+// several. Sensitivity is derived from these server-side
+// (lib/telemetry/normalize.ts#sensitivityForDataClasses), never lowered by
+// the caller.
+enum DataClass {
+  PUBLIC
+  INTERNAL
+  CONFIDENTIAL
+  PII
+  FINANCIAL
+  HEALTH
+  CREDENTIALS
+}
+
+// How a destination was identified. Only the host / domain is ever stored —
+// never a path, query string, userinfo, or an email's local part.
+enum DestinationKind {
+  HOST
+  IP
+  EMAIL_DOMAIN
+}
+
 model ActivityEvent {
   id             String @id @default(cuid())
   organizationId String
@@ -438,16 +536,67 @@ model ActivityEvent {
   errorMessage String? @db.Text
   metadata     Json?
 
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  agent            Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  policyEvaluation PolicyEvaluation?
+  // --- P1 data foundation (docs/AEGIS_P1_DATA_FOUNDATION.md) -------------
+  // Every field below is optional and only set when it can be populated
+  // reliably; null always means "not reported / unknown", never a guess.
+  // Rows are append-only after creation (DB trigger, see the P1 migration).
 
+  // Caller-generated id for this event, unique per (organization, agent).
+  // Makes re-delivery of the same logical event idempotent across process
+  // restarts, and lets later events name it as their parent.
+  clientEventId       String?
+  // Parent reference by the caller's own id, kept as reported. Resolved to
+  // parentEventId (same agent) immediately if the parent exists, or as soon
+  // as the parent arrives (the one permitted NULL -> value change).
+  parentClientEventId String?
+  // The /evaluate decision this reported execution ran under (same agent).
+  // Links "decided" to "done" — decision, matched policies, and approval
+  // live on that PolicyEvaluation, not duplicated here.
+  evaluationId        String?
+  // When the caller says the action happened (validated window). `timestamp`
+  // above remains Aegis's own receipt time — the trusted ordering.
+  occurredAt          DateTime?
+  // Snapshot of the agent's environment as configured in Aegis at ingest —
+  // server-side, never caller-supplied. Null on pre-P1 rows (unknown).
+  environment         Environment?
+  // Normalized forms (lib/telemetry/normalize.ts). toolName above keeps the
+  // caller's display spelling; toolKey is the identity ("CRM" == "crm").
+  toolKey             String?
+  service             String?
+  destination         String?
+  destinationKind     DestinationKind?
+  // Keyed HMAC pseudonym of the end user the agent acted for — the raw id is
+  // never stored (lib/telemetry/pseudonymize.ts).
+  endUserHash         String?
+  dataClasses         DataClass[]      @default([])
+  dataSensitivity     RiskLevel?
+  recordCount         Int?
+  byteCount           Int?
+  outcome             EventOutcome?
+  // Deterministic, explainable signals observed at ingest/decision time
+  // ([{ code, detail }]) — recorded evidence, not a risk score.
+  riskSignals         Json?
+
+  organization            Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent                   Agent                 @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  policyEvaluation        PolicyEvaluation?
+  parent                  ActivityEvent?        @relation("ActivityEventParent", fields: [parentEventId], references: [id], onDelete: SetNull)
+  children                ActivityEvent[]       @relation("ActivityEventParent")
+  executedUnderEvaluation PolicyEvaluation?     @relation("ActivityEventExecutedUnder", fields: [evaluationId], references: [id], onDelete: SetNull)
+  deviations              BehavioralDeviation[]
+
+  @@unique([organizationId, agentId, clientEventId])
   @@index([organizationId, timestamp])
   @@index([agentId, timestamp])
   @@index([organizationId, status])
   @@index([organizationId, riskLevel])
   @@index([traceId])
   @@index([agentId, action]) // supports the "has this agent ever done this action before" existence check — lib/security/detectors.ts
+  @@index([parentEventId])
+  @@index([agentId, parentClientEventId])
+  @@index([evaluationId])
+  @@index([agentId, toolKey])
+  @@index([agentId, destination])
   @@map("activity_events")
 }
 
@@ -607,16 +756,60 @@ model PolicyEvaluation {
   traceId         String?
   activityEventId String? @unique
 
+  // P0 decision-correctness record (see docs/AEGIS_P0_IMPLEMENTATION.md).
+  // All nullable: rows written before P0 simply don't have them.
+  //   decisionSource  CONTROL (kill switch) | POLICY | DEFAULT_DENY |
+  //                   APPROVAL (a consumed, human-approved request)
+  //   agentStatus     the agent's control state at decision time
+  //   matchingMode    STRICT | LEGACY (Organization.legacyPolicyMatching)
+  //   claimed*        what the caller asserted, when the server-side value
+  //                   was used instead — kept as evidence, never trusted
+  //   consumedApprovalRequestId  the approval this evaluation used up
+  decisionSource            String?
+  agentStatus               AgentStatus?
+  matchingMode              String?
+  claimedEnvironment        Environment?
+  claimedRiskLevel          RiskLevel?
+  consumedApprovalRequestId String?
+
+  // P4 unified risk engine — SHADOW ONLY (docs/AEGIS_P4_RISK_ENGINE.md).
+  // Written once with the row (the table is append-only); none of it
+  // influences `decision`. All nullable: rows written before P4, or when the
+  // assessment was unavailable (timeout/failure), simply don't have it.
+  //   riskAssessment             full structured explanation (lib/risk/types.ts)
+  //   riskAssessedLevel          LOW | MEDIUM | HIGH | CRITICAL, for querying
+  //   riskRecommendedDecision    what the risk engine would have decided
+  //   riskShadowOutcome          AGREES | WOULD_ESCALATE | ACTUAL_STRICTER
+  riskAssessment          Json?
+  riskAssessedLevel       RiskLevel?
+  riskRecommendedDecision PolicyDecision?
+  riskShadowOutcome       String?
+
+  // P5 control record — written with the row, like everything above.
+  //   policyDecision     what permissions/policies alone resolved to
+  //   riskControlMode    the EFFECTIVE mode applied (OBSERVE if globally disabled)
+  //   riskControlOutcome OBSERVED | NO_CHANGE | ESCALATED | APPROVAL_HONORED |
+  //                      UNAVAILABLE | KILL_SWITCH
+  //   riskControl        the full snapshot (config, levels, trust state, signals)
+  policyDecision     PolicyDecision?
+  riskControlMode    RiskControlMode?
+  riskControlOutcome String?
+  riskControl        Json?
+
   createdAt DateTime @default(now())
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   agent           Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
   activityEvent   ActivityEvent?   @relation(fields: [activityEventId], references: [id], onDelete: SetNull)
   approvalRequest ApprovalRequest?
+  executions      ActivityEvent[]  @relation("ActivityEventExecutedUnder")
+  riskReviewLabel RiskReviewLabel?
 
   @@index([organizationId, createdAt])
   @@index([agentId, createdAt])
   @@index([organizationId, decision])
+  @@index([organizationId, riskShadowOutcome, createdAt])
+  @@index([organizationId, riskControlOutcome, createdAt])
   @@index([traceId])
   @@map("policy_evaluations")
 }
@@ -667,8 +860,24 @@ model ApprovalRequest {
 
   status      ApprovalStatus @default(PENDING)
   requestedAt DateTime       @default(now())
+  // Deadline for a human decision. Always set for requests created after
+  // P0 (lib/approvals/config.ts). Null only on legacy rows the P0
+  // migration couldn't backfill — treated as never-expiring PENDING.
   expiresAt   DateTime?
   resolvedAt  DateTime?
+
+  // Execution binding (P0). An APPROVED request authorizes exactly one
+  // execution of exactly the request that was approved:
+  //   requestFingerprint  sha256 of the canonical approved request
+  //                       (agent, action, resource, environment, tool,
+  //                       context). Null = created before P0 -> can never be
+  //                       consumed (request a new approval instead).
+  //   executionExpiresAt  set at approval time; consumption after this fails
+  //   consumedAt / consumedByEvaluationId  set atomically, once
+  requestFingerprint     String?
+  executionExpiresAt     DateTime?
+  consumedAt             DateTime?
+  consumedByEvaluationId String?   @unique
 
   traceId String?
 
@@ -780,7 +989,14 @@ model ApiKey {
   environment    ApiKeyEnvironment @default(LIVE)
   prefix         String
   keyHash        String            @unique
-  scopes         String[]          @default(["events:write", "policy:evaluate", "approvals:read"])
+  scopes         String[]          @default(["events:write", "policy:evaluate", "approvals:read", "behavior:read", "trust:read", "graph:read"])
+
+  // Agent binding (P0). Set = this key may only act as this one agent
+  // (send its events, evaluate its actions, read its approvals) and may
+  // not register new agents. Null = organization-wide key (explicit
+  // choice at creation, shown as "All agents"). Cascade, never SetNull:
+  // nulling the binding would silently widen the key to every agent.
+  agentId String?
 
   lastUsedAt DateTime?
   expiresAt  DateTime?
@@ -792,10 +1008,12 @@ model ApiKey {
 
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy          User?               @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  agent              Agent?              @relation(fields: [agentId], references: [id], onDelete: Cascade)
   idempotencyRecords IdempotencyRecord[]
   agentConnections   AgentConnection[]
 
   @@index([organizationId, revokedAt])
+  @@index([agentId])
   @@map("api_keys")
 }
 
@@ -814,6 +1032,12 @@ model IdempotencyRecord {
   requestHash  String // sha256 of the normalized request body
   statusCode   Int
   responseBody Json
+
+  // Null = claimed but the handler hasn't finished yet (statusCode/
+  // responseBody are placeholders). Claim-first is what stops two
+  // concurrent retries with the same key from both running the handler —
+  // see lib/api/idempotency.ts.
+  completedAt DateTime?
 
   expiresAt DateTime
   createdAt DateTime @default(now())
@@ -910,6 +1134,11 @@ model SecurityAlert {
   agentId        String
 
   type              String
+  // Distinguishes findings of the same type that are genuinely different
+  // things (a different action, tool, or policy) so dedup never merges
+  // them. "" = one alert per (agent, type), the right grain for agent-wide
+  // spikes. See lib/security/repository.ts#upsertAlertFinding.
+  dedupeKey         String                   @default("")
   severity          SecurityAlertSeverity
   status            SecurityAlertStatus      @default(OPEN)
   title             String
@@ -931,7 +1160,7 @@ model SecurityAlert {
   resolvedAt           DateTime?
   resolvedByUserId     String?
 
-  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization       Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   // Restrict, not Cascade: a security alert is evidence, and must never
   // silently disappear because its agent was deleted. There is no
   // agent-delete feature today, so this is currently dormant — but if one
@@ -939,14 +1168,54 @@ model SecurityAlert {
   // rather than losing it for free. (Not SetNull: agentId here is
   // non-nullable by design, unlike AuditEvent.agentId — every alert is
   // always about a specific agent.)
-  agent              Agent        @relation(fields: [agentId], references: [id], onDelete: Restrict)
-  acknowledgedByUser User?        @relation("SecurityAlertAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
-  resolvedByUser     User?        @relation("SecurityAlertResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  agent              Agent                     @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  acknowledgedByUser User?                     @relation("SecurityAlertAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
+  resolvedByUser     User?                     @relation("SecurityAlertResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  occurrences        SecurityAlertOccurrence[]
 
   @@index([organizationId, status, severity])
-  @@index([agentId, type])
+  @@index([agentId, type, dedupeKey])
   @@index([organizationId, firstSeenAt])
   @@map("security_alerts")
+}
+
+// One row per time a detector produced a finding for an alert — the first
+// occurrence and every deduplicated repeat. The SecurityAlert row is the
+// summary (count, first/last seen, highest severity); this table is the
+// evidence, append-only, never overwritten. Cascade only with the alert
+// itself, which is already Restrict-protected against agent deletion.
+model SecurityAlertOccurrence {
+  id             String @id @default(cuid())
+  organizationId String
+  alertId        String
+
+  occurredAt  DateTime                 @default(now())
+  severity    SecurityAlertSeverity
+  confidence  SecurityAlertConfidence?
+  title       String
+  description String                   @db.Text
+  evidence    Json?
+  traceId     String?
+
+  alert SecurityAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId, occurredAt])
+  @@index([organizationId, occurredAt])
+  @@map("security_alert_occurrences")
+}
+
+// Shared fixed-window rate-limit counters (P0) — see
+// lib/rate-limit/limiter.ts#PostgresRateLimiter. One row per (key, window);
+// rows past expiresAt are garbage and swept opportunistically.
+model RateLimitBucket {
+  key         String
+  windowStart DateTime
+  count       Int      @default(0)
+  expiresAt   DateTime
+
+  @@id([key, windowStart])
+  @@index([expiresAt])
+  @@map("rate_limit_buckets")
 }
 
 // ---------------------------------------------------------------------------
@@ -1291,4 +1560,393 @@ model ArenaAnalyticsEvent {
   @@index([event, createdAt])
   @@index([scorecardId])
   @@map("arena_analytics_events")
+}
+
+// ---------------------------------------------------------------------------
+// P2 — Behavioral memory (docs/AEGIS_P2_BEHAVIORAL_MEMORY.md). Per-agent,
+// explainable, deterministic statistics. No model, no global baseline.
+// ---------------------------------------------------------------------------
+
+// Hourly per-agent counters, one row per (agent, hour, dimension, key).
+// Recomputed exactly from activity_events for CLOSED hours only: events are
+// bucketed by Aegis's receipt `timestamp`, so a closed hour can never gain
+// events and a recomputation is always correct (no incremental drift).
+// Only "learnable" events count (status not BLOCKED / APPROVAL_REQUIRED),
+// except the `decision` dimension, which records every policy decision.
+model AgentActivityRollup {
+  organizationId String
+  agentId        String
+  hourStart      DateTime
+  dimension      String // total | action | eventType | tool | service | destination | dataClass | environment | endUser | outcome | decision | transition
+  key            String // "" for `total`
+  count          Int
+  recordSum      Float    @default(0) // `total` only: sum of recordCount (double: exact to 2^53)
+  byteSum        Float    @default(0) // `total` only: sum of byteCount
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, hourStart, dimension, key])
+  @@index([agentId, dimension, hourStart])
+  @@map("agent_activity_rollups")
+}
+
+// Processing state per agent (mutable bookkeeping — not evidence).
+model AgentBehaviorState {
+  agentId               String    @id
+  organizationId        String
+  // Exclusive end of the rolled-up history (an hour boundary). Hours before
+  // this are complete in agent_activity_rollups.
+  rollupThrough         DateTime?
+  latestBaselineVersion Int       @default(0)
+  lastRefreshedAt       DateTime?
+  updatedAt             DateTime  @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("agent_behavior_states")
+}
+
+enum BaselineMaturity {
+  NEW_AGENT
+  LIMITED_HISTORY
+  ESTABLISHED
+}
+
+// A versioned, immutable snapshot of "what is normal for this agent",
+// computed from rollups over a trailing learning window that ends at the
+// start of the current UTC day (today never teaches itself). A new version
+// is appended at most once per UTC day; older versions are kept as history
+// and are append-only (DB trigger).
+model AgentBaseline {
+  id                 String           @id @default(cuid())
+  organizationId     String
+  agentId            String
+  version            Int
+  methodologyVersion Int
+  maturity           BaselineMaturity
+  windowStart        DateTime
+  windowEnd          DateTime
+  eventsObserved     Int
+  activeDays         Int
+  activeHours        Int
+  profile            Json // see lib/behavior/types.ts#BehaviorProfile
+  computedAt         DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, version])
+  @@index([organizationId, agentId, computedAt])
+  @@map("agent_baselines")
+}
+
+enum BehavioralDeviationKind {
+  NEW_TOOL
+  NEW_DESTINATION
+  NEW_SERVICE
+  NEW_ACTION_TYPE
+  NEW_END_USER
+  UNUSUAL_DATA_TYPE
+  UNUSUAL_SEQUENCE
+  UNUSUAL_VOLUME
+  UNUSUAL_FREQUENCY
+  UNUSUAL_TIME
+}
+
+// "This agent is behaving differently from its established baseline" — one
+// row per (agent, kind, subject, UTC day). The fields describing the first
+// occurrence (what changed, why it's unusual, what was expected, the baseline
+// version compared against, the triggering event) are immutable; only
+// occurrences/lastSeenAt advance on repeats (DB trigger). Behavioral
+// evidence only: deviations change no decision and raise no alert in P2.
+model BehavioralDeviation {
+  id              String                  @id @default(cuid())
+  organizationId  String
+  agentId         String
+  kind            BehavioralDeviationKind
+  dedupeKey       String
+  day             DateTime // UTC day of first occurrence
+  baselineVersion Int
+  maturity        BaselineMaturity
+  confidence      SecurityAlertConfidence
+  eventId         String?
+  observed        Json
+  expected        Json
+  explanation     String                  @db.Text
+  firstSeenAt     DateTime                @default(now())
+  lastSeenAt      DateTime                @default(now())
+  occurrences     Int                     @default(1)
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  event        ActivityEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@unique([agentId, kind, dedupeKey, day])
+  @@index([organizationId, agentId, firstSeenAt])
+  @@index([agentId, kind, day])
+  @@map("behavioral_deviations")
+}
+
+// ---------------------------------------------------------------------------
+// Agent trust (P3) — see docs/AEGIS_P3_AGENT_TRUST.md. A dynamic, explainable
+// trust state derived ONLY from evidence Aegis already holds (behavioral
+// deviations, policy outcomes, security alerts, approval rejections, operator
+// control, agent age/baseline maturity). Informational in P3: trust blocks
+// and changes no decision.
+// ---------------------------------------------------------------------------
+
+enum TrustState {
+  TRUSTED
+  NORMAL
+  DEGRADED
+  HIGH_RISK
+  RESTRICTED
+}
+
+enum TrustTrigger {
+  ACTIVITY_EVENT
+  POLICY_EVALUATION
+  APPROVAL_DECISION
+  SECURITY_ALERT
+  OPERATOR_CONTROL
+  SCHEDULED
+  ON_DEMAND
+}
+
+// The CURRENT trust state of an agent (mutable cache of the latest
+// evaluation; the evidence of record is agent_trust_transitions).
+model AgentTrustState {
+  agentId            String     @id
+  organizationId     String
+  state              TrustState
+  score              Int
+  // When the agent entered the current state.
+  stateSince         DateTime
+  // Sequence number of the latest recorded transition.
+  sequence           Int
+  methodologyVersion Int
+  // Current drivers (see lib/trust/types.ts): factors, limits, per-category totals.
+  factors            Json
+  limits             Json
+  categories         Json
+  evaluatedAt        DateTime
+  updatedAt          DateTime   @updatedAt
+
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, state])
+  @@map("agent_trust_states")
+}
+
+// One row per MEANINGFUL trust change (initialization, a state change, or a
+// score move of at least TRUST_MIN_SCORE_DELTA). Append-only (DB trigger):
+// each row snapshots the factors that explained it, so history stays
+// readable after the source rows age out. `sequence` is gapless per agent;
+// unique(agentId, sequence) is the integrity backstop for concurrent writers.
+model AgentTrustTransition {
+  id                 String       @id @default(cuid())
+  organizationId     String
+  agentId            String
+  sequence           Int
+  occurredAt         DateTime
+  previousState      TrustState?
+  newState           TrustState
+  previousScore      Int?
+  newScore           Int
+  trigger            TrustTrigger
+  // The event / evaluation / approval / alert that prompted the evaluation. No FK on purpose.
+  triggerRef         String?
+  summary            String       @db.Text
+  factors            Json
+  limits             Json
+  changes            Json
+  methodologyVersion Int
+
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, sequence])
+  @@index([organizationId, agentId, occurredAt])
+  @@map("agent_trust_transitions")
+}
+
+// An operator's judgement about one risk-flagged decision. The ONLY source of
+// "was this a false positive?" — Aegis never infers it. One current label per
+// evaluation (relabeling replaces it); every change is also an audit event.
+model RiskReviewLabel {
+  id             String               @id @default(cuid())
+  organizationId String
+  evaluationId   String               @unique
+  label          RiskReviewLabelValue
+  note           String?
+  reviewedById   String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  evaluation   PolicyEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, label])
+  @@map("risk_review_labels")
+}
+
+// ---------------------------------------------------------------------------
+// P7 — Incident intelligence (docs/AEGIS_P7_INCIDENT_INTELLIGENCE.md).
+//
+// An Incident is a thin, durable HANDLE on a piece of stored evidence: which
+// record triggered it (anchor), which run it belongs to (traceId), and the
+// operator's handling of it (status, acknowledgement). Everything else — the
+// timeline, the summary, the evidence list — is RECONSTRUCTED on read from the
+// underlying append-only records (activity events, policy evaluations,
+// approvals, alerts + occurrences, deviations, trust transitions), so an
+// incident can never hold a fact the telemetry doesn't, and handling an
+// incident never touches the security records it describes.
+// ---------------------------------------------------------------------------
+
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  FALSE_POSITIVE
+}
+
+enum IncidentActivityKind {
+  OPENED
+  ACKNOWLEDGED
+  STATUS_CHANGED
+  NOTE
+}
+
+model Incident {
+  id             String @id @default(cuid())
+  organizationId String
+  agentId        String
+  // Human-friendly, per organization (INC-12). Assigned under a per-org lock.
+  number         Int
+
+  // One incident per (organization, agent, cluster): the run (trace) the trigger
+  // belongs to, or the trigger record itself when it has no trace.
+  // Immutable (DB trigger), like the anchor.
+  clusterKey String
+  anchorType String // SECURITY_ALERT | POLICY_EVALUATION | ACTIVITY_EVENT
+  anchorId   String
+  traceId    String?
+
+  title    String
+  // The highest severity of the evidence seen when last synced; only ever raised.
+  severity RiskLevel
+
+  status           IncidentStatus @default(OPEN)
+  statusChangedAt  DateTime       @default(now())
+  // Acknowledgement is separate from status and never touches the security record.
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+
+  openedAt       DateTime @default(now())
+  // ALERT_TRIGGER (opened automatically when a security alert was raised) | MANUAL
+  openedVia      String
+  openedByUserId String?
+  updatedAt      DateTime @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  activity     IncidentActivity[]
+
+  @@unique([organizationId, agentId, clusterKey])
+  @@unique([organizationId, number])
+  @@index([organizationId, status, openedAt])
+  @@index([organizationId, openedAt])
+  @@index([agentId, openedAt])
+  @@index([traceId])
+  @@map("incidents")
+}
+
+// The incident's own audit trail. Append-only (DB trigger): opening, acknowledging,
+// every status change and every note stays, with who and when, and a digest of the
+// evidence set at that moment so "the evidence changed after this was closed" is
+// detectable.
+model IncidentActivity {
+  id             String               @id @default(cuid())
+  organizationId String
+  incidentId     String
+  kind           IncidentActivityKind
+  fromStatus     IncidentStatus?
+  toStatus       IncidentStatus?
+  // Null = the system (e.g. a new alert reopened the incident).
+  actorUserId    String?
+  note           String?              @db.Text
+  evidenceDigest String?
+  evidenceCount  Int?
+  createdAt      DateTime             @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("incident_activity")
+}
+
+// ---------------------------------------------------------------------------
+// Free AI Agent Risk Scanner (docs/AEGIS_FREE_RISK_SCANNER.md). Additive and
+// isolated like Agent Arena: scalar ids only, no foreign keys into legacy
+// models. A scan is created anonymously (owned by a hashed browser-session
+// token) and may later be claimed by a user/organization. Pasted text is NEVER
+// stored: only the structured answers, allowlisted signal ids and the computed
+// result are. `id` is a 128-bit random token generated in application code.
+// ---------------------------------------------------------------------------
+
+model RiskScan {
+  id               String  @id
+  sessionHash      String? // sha256 of the anonymous session token; the anonymous "owner"
+  userId           String? // set when claimed
+  organizationId   String? // set when claimed
+  connectedAgentId String? // optional link to an Aegis agent
+
+  agentType     String
+  agentLabel    String? // sanitised free text for type "other"; never shown publicly
+  capabilities  Json // string[] of allowlisted ids
+  autonomy      Json // string[] of allowlisted ids
+  controls      Json // { controlId: state }
+  inputSignals  Json? // pasted-content signal ids + counts + char count; no text
+  engineVersion String
+
+  score         Int
+  level         String // low | moderate | high | critical
+  highRiskCount Int
+  mediumCount   Int
+  result        Json // the full structured ScanResult at the time of the scan
+
+  isPublic    Boolean   @default(false)
+  publicSlug  String?   @unique
+  publishedAt DateTime?
+
+  // Anonymous scans expire (30 days); claimed scans have no expiry. Published ones get 90 days.
+  expiresAt DateTime?
+  claimedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([sessionHash])
+  @@index([organizationId, createdAt])
+  @@index([expiresAt])
+  @@map("risk_scans")
+}
+
+// Append-only scanner funnel analytics. Never holds scan content: only event
+// names, a hashed visitor id, ids and a few allowlisted scalar properties.
+model ScannerAnalyticsEvent {
+  id             String   @id @default(cuid())
+  event          String
+  visitorHash    String?
+  scanId         String?
+  organizationId String?
+  properties     Json?
+  createdAt      DateTime @default(now())
+
+  @@index([event, createdAt])
+  @@index([scanId])
+  @@map("scanner_analytics_events")
 }

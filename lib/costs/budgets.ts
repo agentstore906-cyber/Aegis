@@ -143,6 +143,7 @@ export async function checkAgentBudgets(organizationId: string, agent: { id: str
         )} ${periodLabel} budget (${Math.round(percent)}%). Aegis has no mechanism to block this agent's spending — this is a monitoring alert, not an enforcement action.`,
         evidence: { spentCents, limitCents: budget.limitCents, period: budget.period, percent: Math.round(percent) },
         recommendedAction: "Review recent activity driving spend, or raise this agent's budget if the increase is expected.",
+        dedupeKey: `budget:${budget.id}`,
       });
       await dispatchWebhookEvent(organizationId, "budget.exceeded", {
         alertId: alert.id,
@@ -162,6 +163,7 @@ export async function checkAgentBudgets(organizationId: string, agent: { id: str
           budget.limitCents
         )} ${periodLabel} budget (${Math.round(percent)}%, at or above the ${budget.warningThresholdPercent}% warning threshold).`,
         evidence: { spentCents, limitCents: budget.limitCents, period: budget.period, percent: Math.round(percent) },
+        dedupeKey: `budget:${budget.id}`,
       });
       await dispatchWebhookEvent(organizationId, "budget.warning", {
         alertId: alert.id,

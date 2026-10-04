@@ -11,7 +11,7 @@ import { API_KEY_ENVIRONMENTS } from "@/lib/validation/api-key";
 
 const initialState: CreateApiKeyState = {};
 
-export function CreateApiKeyForm() {
+export function CreateApiKeyForm({ agents }: { agents: { id: string; name: string }[] }) {
   const [state, formAction, pending] = useActionState(createApiKeyAction, initialState);
   const [dismissed, setDismissed] = useState(false);
 
@@ -73,6 +73,32 @@ export function CreateApiKeyForm() {
           </Select>
         </div>
       </div>
+
+      <div className="sm:max-w-md">
+        <Label htmlFor="agentId">Agent access</Label>
+        <Select id="agentId" name="agentId" defaultValue="">
+          <option value="">All agents in this organization</option>
+          {agents.map((agent) => (
+            <option key={agent.id} value={agent.id}>
+              Only {agent.name}
+            </option>
+          ))}
+        </Select>
+        <p className="mt-1 text-xs text-muted-foreground">
+          A key limited to one agent can only send that agent&rsquo;s events, evaluate its actions, and read its
+          approvals — and cannot register new agents. Prefer this for keys deployed with a single agent.
+        </p>
+      </div>
+
+      <label className="flex max-w-xl items-start gap-2 text-sm text-foreground">
+        <input type="checkbox" name="adminAccess" className="mt-1" />
+        <span>
+          <strong>Admin tooling access</strong> — allow policy simulation and the organization-wide agent inventory over the API (for CI and governance reporting).
+          <span className="block text-xs text-muted-foreground">
+            Off by default and only for &ldquo;All agents&rdquo; keys. Never put this key in an agent: simulation explains how Aegis detects and scores risk.
+          </span>
+        </span>
+      </label>
 
       <div className="sm:w-48">
         <Label htmlFor="expiresInDays">Expiration</Label>

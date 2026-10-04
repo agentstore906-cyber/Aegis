@@ -14,7 +14,9 @@ function KeyStatusBadge({ apiKey }: { apiKey: ApiKey }) {
   );
 }
 
-export function ApiKeysTable({ apiKeys, canManage }: { apiKeys: ApiKey[]; canManage: boolean }) {
+type ApiKeyRow = ApiKey & { agent: { id: string; name: string; slug: string } | null };
+
+export function ApiKeysTable({ apiKeys, canManage }: { apiKeys: ApiKeyRow[]; canManage: boolean }) {
   return (
     <Table>
       <Thead>
@@ -22,6 +24,7 @@ export function ApiKeysTable({ apiKeys, canManage }: { apiKeys: ApiKey[]; canMan
           <Th>Name</Th>
           <Th>Key</Th>
           <Th>Environment</Th>
+          <Th>Agent access</Th>
           <Th>Status</Th>
           <Th>Last used</Th>
           <Th>Created</Th>
@@ -40,6 +43,15 @@ export function ApiKeysTable({ apiKeys, canManage }: { apiKeys: ApiKey[]; canMan
               <Badge tone={apiKey.environment === "LIVE" ? "brand" : "neutral"}>
                 {apiKey.environment === "LIVE" ? "Live" : "Test"}
               </Badge>
+            </Td>
+            <Td className="text-xs text-muted-foreground">
+              {apiKey.agent ? (
+                <span>
+                  Only <span className="font-medium text-foreground">{apiKey.agent.name}</span>
+                </span>
+              ) : (
+                "All agents"
+              )}
             </Td>
             <Td>
               <KeyStatusBadge apiKey={apiKey} />

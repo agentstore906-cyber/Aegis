@@ -34,9 +34,26 @@ export async function createApiKeyAction(
     name: formData.get("name"),
     environment: formData.get("environment"),
     expiresInDays: formData.get("expiresInDays") ?? "",
+    agentId: formData.get("agentId") ?? "",
+    adminAccess: formData.get("adminAccess") === "on",
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid API key details" };
+  }
+
+  if (parsed.data.adminAccess && parsed.data.agentId) {
+    return { error: "Admin access (simulation and inventory) is only for organization-wide keys, not keys limited to one agent." };
+  }
+
+  // Binding target must be an agent of *this* organization — never trust a
+  // posted id on its own (P0 §7).
+  let boundAgent: { id: string; name: string } | null = null;
+  if (parsed.data.agentId) {
+    boundAgent = await prisma.agent.findFirst({
+      where: { id: parsed.data.agentId, organizationId: organization.id },
+      select: { id: true, name: true },
+    });
+    if (!boundAgent) return { error: "That agent was not found in this organization." };
   }
 
   const expiresAt = parsed.data.expiresInDays
@@ -47,7 +64,7 @@ export async function createApiKeyAction(
     const { apiKey, raw } = await repo.createApiKey(
       organization.id,
       user.id,
-      { name: parsed.data.name, environment: parsed.data.environment, expiresAt },
+      { name: parsed.data.name, environment: parsed.data.environment, expiresAt, agentId: boundAgent?.id ?? null, adminAccess: parsed.data.adminAccess },
       tx
     );
     await recordAuditEvent(tx, {
@@ -58,7 +75,14 @@ export async function createApiKeyAction(
       entityType: "ApiKey",
       entityId: apiKey.id,
       action: "api_key.create",
-      metadata: { name: apiKey.name, environment: apiKey.environment, prefix: apiKey.prefix },
+      metadata: {
+        name: apiKey.name,
+        environment: apiKey.environment,
+        prefix: apiKey.prefix,
+        agentId: boundAgent?.id ?? null,
+        agentName: boundAgent?.name ?? null,
+        adminAccess: parsed.data.adminAccess,
+      },
     });
     return { apiKey, raw };
   });

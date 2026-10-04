@@ -13,7 +13,7 @@ const APPROVAL_INCLUDE = {
     include: { decidedBy: { select: { id: true, name: true, email: true } } },
     orderBy: { createdAt: "desc" as const },
   },
-  policyEvaluation: { select: { id: true, matchedPolicySnapshots: true, permissionSnapshot: true } },
+  policyEvaluation: { select: { id: true, matchedPolicySnapshots: true, permissionSnapshot: true, riskAssessment: true, riskControl: true } },
 } satisfies Prisma.ApprovalRequestInclude;
 
 export type ApprovalRequestWithRelations = Prisma.ApprovalRequestGetPayload<{
@@ -38,6 +38,8 @@ export type CreateApprovalRequestParams = {
   reason: string;
   traceId?: string | null;
   expiresAt?: Date | null;
+  /** lib/approvals/binding.ts#computeRequestFingerprint of the request being approved. */
+  requestFingerprint?: string | null;
 };
 
 /**
@@ -81,6 +83,7 @@ export async function createApprovalRequestForEvaluation(
       reason: params.reason,
       traceId: params.traceId ?? undefined,
       expiresAt: params.expiresAt ?? undefined,
+      requestFingerprint: params.requestFingerprint ?? undefined,
     },
   });
 }
@@ -107,6 +110,10 @@ const APPROVAL_PAGE_SIZE = 20;
  * enum ordering to interleave statuses within one query.
  */
 export async function listApprovalRequests(organizationId: string, filters: ApprovalFilters) {
+  // Lazy expiry has to cover lists too, or an expired request would keep
+  // showing as PENDING (and look approvable) until someone opened it.
+  await expireStaleApprovals(organizationId);
+
   const where: Prisma.ApprovalRequestWhereInput = {
     organizationId,
     status: filters.status ?? "PENDING",
@@ -162,17 +169,28 @@ export async function expireIfNeeded(
     return request;
   }
 
-  const resolvedAt = new Date();
-  const result = await prisma.approvalRequest.updateMany({
-    where: { id: request.id, status: "PENDING" },
-    data: { status: "EXPIRED", resolvedAt },
-  });
-
-  if (result.count === 0) {
+  const expired = await expirePendingApproval(request.id);
+  if (!expired) {
     // Someone else resolved it between the read and this write — re-fetch to reflect reality.
     return prisma.approvalRequest.findUniqueOrThrow({ where: { id: request.id }, include: APPROVAL_INCLUDE });
   }
+  return { ...request, status: "EXPIRED", resolvedAt: expired.resolvedAt };
+}
 
+/**
+ * Flips one PENDING request past its deadline to EXPIRED and audits it.
+ * Conditional on still being PENDING *and* past expiresAt, so it can never
+ * clobber a concurrent human decision. Returns null if nothing changed.
+ */
+export async function expirePendingApproval(id: string): Promise<{ resolvedAt: Date } | null> {
+  const resolvedAt = new Date();
+  const result = await prisma.approvalRequest.updateMany({
+    where: { id, status: "PENDING", expiresAt: { lte: resolvedAt } },
+    data: { status: "EXPIRED", resolvedAt },
+  });
+  if (result.count === 0) return null;
+
+  const request = await prisma.approvalRequest.findUniqueOrThrow({ where: { id } });
   await recordAuditEvent(prisma, {
     organizationId: request.organizationId,
     actorType: "SYSTEM",
@@ -183,8 +201,21 @@ export async function expireIfNeeded(
     action: request.action,
     traceId: request.traceId,
   });
+  return { resolvedAt };
+}
 
-  return { ...request, status: "EXPIRED", resolvedAt };
+/** Expires every overdue PENDING request in an org (bounded batch), each audited individually. */
+export async function expireStaleApprovals(organizationId: string, limit = 100): Promise<number> {
+  const overdue = await prisma.approvalRequest.findMany({
+    where: { organizationId, status: "PENDING", expiresAt: { lte: new Date() } },
+    select: { id: true },
+    take: limit,
+  });
+  let count = 0;
+  for (const { id } of overdue) {
+    if (await expirePendingApproval(id)) count += 1;
+  }
+  return count;
 }
 
 export async function listApprovalsForAgent(organizationId: string, agentId: string, limit = 10) {

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { redactSecrets } from "@/lib/security/redact";
 import { signPayload } from "@/lib/webhooks/crypto";
 import { assertSafeWebhookUrl } from "@/lib/webhooks/ssrf";
+import { defer } from "@/lib/server/defer";
 import type { WebhookEventType } from "@/lib/webhooks/types";
 
 export { WEBHOOK_EVENT_TYPES } from "@/lib/webhooks/types";
@@ -20,32 +21,42 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Delivers an event to every ACTIVE endpoint subscribed to it. Best-effort
- * and immediate — NOT a durable queue, since no background-job
- * infrastructure exists in this environment (spec §26/§56). A process
- * restart mid-retry drops that delivery; every attempt (success or
- * failure) is logged to WebhookDelivery so gaps are at least visible, not
- * silent. See docs/webhooks.md.
+ * Schedules delivery of an event to every ACTIVE endpoint subscribed to it,
+ * AFTER the current response is sent (lib/server/defer.ts). Delivery —
+ * including its bounded retries, up to ~16s against a slow endpoint — used
+ * to run inline, which stalled POST /api/v1/evaluate behind a customer's
+ * webhook receiver. A webhook is a notification, never part of the
+ * security decision, so it never sits on the decision path now.
  *
- * Never throws — a webhook failure must never break the flow (approval
- * resolution, alert creation, agent pause, ...) that triggered it.
+ * Still best-effort, NOT a durable queue (no background-job infrastructure
+ * exists yet — docs/AEGIS_P0_IMPLEMENTATION.md §9). Every attempt (success
+ * or failure) is logged to WebhookDelivery so gaps stay visible.
+ *
+ * Never throws and never blocks on delivery — a webhook failure must never
+ * break the flow (approval resolution, alert creation, agent pause, ...)
+ * that triggered it. The payload is snapshotted (redacted) synchronously.
  */
 export async function dispatchWebhookEvent(
   organizationId: string,
   eventType: WebhookEventType,
   data: Record<string, unknown>
 ): Promise<void> {
-  try {
-    await dispatchUnsafe(organizationId, eventType, data);
-  } catch (error) {
-    console.error(JSON.stringify({ msg: "webhook_dispatch_failed", organizationId, eventType, error: String(error) }));
-  }
+  const snapshot = redactSecrets(data);
+  const createdAt = new Date().toISOString();
+  defer(`webhook:${eventType}`, async () => {
+    try {
+      await dispatchUnsafe(organizationId, eventType, snapshot, createdAt);
+    } catch (error) {
+      console.error(JSON.stringify({ msg: "webhook_dispatch_failed", organizationId, eventType, error: String(error) }));
+    }
+  });
 }
 
 async function dispatchUnsafe(
   organizationId: string,
   eventType: WebhookEventType,
-  data: Record<string, unknown>
+  data: unknown,
+  createdAt: string
 ): Promise<void> {
   const endpoints = await prisma.webhookEndpoint.findMany({
     where: { organizationId, status: "ACTIVE", subscribedEvents: { has: eventType } },
@@ -55,8 +66,8 @@ async function dispatchUnsafe(
   const payload = {
     event: eventType,
     apiVersion: "2026-08-12",
-    createdAt: new Date().toISOString(),
-    data: redactSecrets(data),
+    createdAt,
+    data,
   };
   const rawBody = JSON.stringify(payload);
 

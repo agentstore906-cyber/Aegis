@@ -18,7 +18,12 @@ import {
 } from "@/lib/policies/repository";
 import { listApprovalsForAgent } from "@/lib/approvals/repository";
 import { getSecurityStatsForAgent, getAgentRiskScore, listSecurityAlertsForAgent } from "@/lib/security/repository";
-import { getAgentBehavioralBaseline } from "@/lib/security/baseline";
+import { getBehaviorProfile, listDeviations } from "@/lib/behavior/queries";
+import { getTrust, listTrustHistory } from "@/lib/trust/queries";
+import { canViewSecurityAlerts } from "@/lib/security/authorization";
+import { canViewActionGraph } from "@/lib/graph/authorization";
+import { getRunGraph, listRuns } from "@/lib/graph/queries";
+import { getAgentControlView } from "@/lib/control/agent-view";
 import { getCostPerSuccessfulTaskForAgent } from "@/lib/costs/queries";
 import type { ConnectorCapabilities } from "@/lib/connectors/types";
 
@@ -42,8 +47,14 @@ import { PermissionsTable } from "@/components/policies/permissions-table";
 import { AgentPoliciesList } from "@/components/policies/agent-policies-list";
 import { AgentConnectPanel } from "@/components/agents/agent-connect-panel";
 import { AgentConnectionPanel } from "@/components/agents/agent-connection-panel";
+import { AgentProtectionStatus } from "@/components/agents/connection/agent-protection-status";
+import type { ConnectionSnapshotJson } from "@/components/agents/connection/use-connection-status";
+import { getAgentConnectionSnapshot } from "@/lib/agents/connection-view";
 import { AgentRiskScore } from "@/components/security/agent-risk-score";
-import { BehavioralBaselineCard } from "@/components/security/behavioral-baseline";
+import { BehaviorDetails, BehaviorSummary } from "@/components/behavior/behavior-view";
+import { TrustDetails, TrustSummary } from "@/components/trust/trust-view";
+import { RunGraphView, RunListView } from "@/components/graph/action-graph-view";
+import { AgentControlPanel } from "@/components/control/agent-control-view";
 export const metadata: Metadata = { title: "Agent" };
 
 export default async function AgentDetailPage({
@@ -51,11 +62,11 @@ export default async function AgentDetailPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; trace?: string; cursor?: string; rcursor?: string }>;
 }) {
   const { organization, role } = await requireActiveOrganization();
   const { slug } = await params;
-  const { tab: rawTab } = await searchParams;
+  const { tab: rawTab, trace, cursor, rcursor } = await searchParams;
   const tab = rawTab ?? "overview";
 
   const agent = await getAgentBySlug(organization.id, slug);
@@ -76,17 +87,48 @@ export default async function AgentDetailPage({
   const agentApprovals = tab === "approvals" ? await listApprovalsForAgent(organization.id, agent.id, 20) : [];
   const agentSecurityAlerts = tab === "security" ? await listSecurityAlertsForAgent(organization.id, agent.id, 50) : [];
 
-  const [riskSecurityStats, riskActivityCounts, agentRisk, behavioralBaseline] =
+  // Behavioral memory (P2) is security data: same visibility as security alerts.
+  const canViewBehavior = canViewSecurityAlerts(role);
+  const [riskSecurityStats, riskActivityCounts, agentRisk, behavior, trustSummary] =
     tab === "overview"
       ? await Promise.all([
           getSecurityStatsForAgent(organization.id, agent.id),
           getAgentActivityStatusCounts(organization.id, agent.id),
           getAgentRiskScore(organization.id, agent),
-          getAgentBehavioralBaseline(organization.id, agent.id),
+          canViewBehavior ? getBehaviorProfile(organization.id, agent.id) : Promise.resolve(null),
+          // Agent trust (P3) has the same visibility as behavior and security alerts.
+          canViewBehavior ? getTrust(organization.id, agent.id) : Promise.resolve(null),
         ])
-      : [null, null, null, null];
+      : [null, null, null, null, null];
+  const trustTab =
+    tab === "trust" && canViewBehavior
+      ? await Promise.all([getTrust(organization.id, agent.id), listTrustHistory(organization.id, agent.id, { limit: 20 })])
+      : null;
+  const behaviorTab =
+    tab === "behavior" && canViewBehavior
+      ? await Promise.all([
+          getBehaviorProfile(organization.id, agent.id),
+          listDeviations(organization.id, agent.id, { days: 14, limit: 50 }),
+        ])
+      : null;
+
+  // Action graph (P6): decisions, policy, risk and approvals for the agent's activity — security-view visibility.
+  const graphAllowed = canViewActionGraph(role);
+  const graphTab =
+    tab === "graph" && graphAllowed
+      ? trace
+        ? { run: await getRunGraph(organization.id, { id: agent.id, name: agent.name, slug: agent.slug }, trace, { cursor }), list: null }
+        : { run: null, list: await listRuns(organization.id, agent.id, { cursor: rcursor }) }
+      : null;
+
+  // Control view (control plane): identity, access, behavior, trust, risk, approvals, enforcement coverage — security-view visibility.
+  const controlView = tab === "control" && canViewBehavior ? await getAgentControlView(organization.id, slug) : null;
 
   const costPerSuccessfulTaskCents = tab === "costs" ? await getCostPerSuccessfulTaskForAgent(organization.id, agent.id) : null;
+
+  // Connection, monitoring and decision state, derived from evidence (never from a stored click).
+  const connectionSnapshot: ConnectionSnapshotJson | null =
+    tab === "overview" ? (JSON.parse(JSON.stringify(await getAgentConnectionSnapshot(organization.id, agent.slug))) as ConnectionSnapshotJson | null) : null;
 
   const connectionView =
     tab === "overview" && agent.connection
@@ -139,8 +181,11 @@ export default async function AgentDetailPage({
         <Badge tone="neutral">{agent.owner}</Badge>
         <Badge tone="neutral">{agent.environment.charAt(0) + agent.environment.slice(1).toLowerCase()}</Badge>
         <span className="text-xs text-muted-foreground">
-          Last active{" "}
-          {agent.lastActiveAt ? formatRelativeTime(agent.lastActiveAt) : "never"}
+          {connectionSnapshot?.view.lastSeenAt
+            ? `Last seen ${formatRelativeTime(new Date(connectionSnapshot.view.lastSeenAt))}`
+            : agent.lastActiveAt
+              ? `Last active ${formatRelativeTime(agent.lastActiveAt)}`
+              : "Never seen"}
         </span>
       </div>
 
@@ -220,6 +265,23 @@ export default async function AgentDetailPage({
           </Card>
 
           <div className="space-y-4">
+            {connectionSnapshot && (
+              <section aria-label="Connection status" className="space-y-3">
+                <AgentProtectionStatus view={connectionSnapshot.view} />
+                {connectionSnapshot.baseline === null || connectionSnapshot.baseline.maturity !== "ESTABLISHED" ? (
+                  <p className="rounded-lg border border-border bg-surface px-4 py-3 text-xs text-muted-foreground">
+                    <span className="section-label mr-2">{connectionSnapshot.baseline ? "Limited history" : "New agent"}</span>
+                    Learning this agent&rsquo;s normal behavior. Events observed: <span className="num text-foreground">{connectionSnapshot.eventsObserved}</span>.
+                    {connectionSnapshot.baseline ? " A baseline exists but is built from limited history." : " No baseline exists yet."}
+                  </p>
+                ) : (
+                  <p className="rounded-lg border border-border bg-surface px-4 py-3 text-xs text-muted-foreground">
+                    <span className="section-label mr-2">Baseline</span>
+                    Established from <span className="num text-foreground">{connectionSnapshot.baseline.eventsObserved}</span> events (version {connectionSnapshot.baseline.version}).
+                  </p>
+                )}
+              </section>
+            )}
             {connectionView && (
               <AgentConnectionPanel
                 agentSlug={agent.slug}
@@ -232,6 +294,17 @@ export default async function AgentDetailPage({
                 lastHealthCheckAtLabel={connectionView.lastHealthCheckAtLabel}
                 lastHealthError={connectionView.lastHealthError}
                 canManage={canManageThisAgent}
+                derived={
+                  connectionSnapshot
+                    ? {
+                        state: connectionSnapshot.view.state,
+                        stateLabel: connectionSnapshot.view.stateLabel,
+                        detail: connectionSnapshot.view.detail,
+                        reason: connectionSnapshot.view.reason,
+                        lastSeenLabel: connectionSnapshot.view.lastSeenAt ? formatRelativeTime(new Date(connectionSnapshot.view.lastSeenAt)) : null,
+                      }
+                    : undefined
+                }
               />
             )}
             <Card>
@@ -262,6 +335,7 @@ export default async function AgentDetailPage({
                         action={event.action}
                         resource={event.resource}
                         status={event.status}
+                        source={event.source}
                       />
                     ))}
                   </div>
@@ -283,13 +357,28 @@ export default async function AgentDetailPage({
               </Card>
             )}
 
-            {behavioralBaseline && (
+            {behavior && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Behavioral baseline</CardTitle>
+                  <CardTitle>Behavior</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <BehavioralBaselineCard baseline={behavioralBaseline} />
+                  <BehaviorSummary
+                    slug={agent.slug}
+                    meta={behavior.baseline}
+                    deviationCount={behavior.recentDeviations.length}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {trustSummary && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Trust</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <TrustSummary slug={agent.slug} trust={trustSummary} />
                 </CardContent>
               </Card>
             )}
@@ -378,6 +467,7 @@ export default async function AgentDetailPage({
                     toolName={event.toolName}
                     description={event.description}
                     status={event.status}
+                    source={event.source}
                   />
                 ))}
               </div>
@@ -551,6 +641,52 @@ export default async function AgentDetailPage({
           )}
         </div>
       )}
+
+      {tab === "behavior" &&
+        (behaviorTab && behaviorTab[0] ? (
+          <BehaviorDetails meta={behaviorTab[0].baseline} profile={behaviorTab[0].profile} deviations={behaviorTab[1] ?? []} />
+        ) : (
+          <EmptyState
+            icon={ShieldAlert}
+            title="Behavior isn't available to your role"
+            description="Behavioral data has the same visibility as security alerts."
+          />
+        ))}
+
+      {tab === "control" &&
+        (!canViewBehavior ? (
+          <EmptyState icon={ShieldAlert} title="The control view isn't available to your role" description="It shows access, trust, risk and enforcement, so it has the same visibility as security alerts." />
+        ) : controlView ? (
+          <AgentControlPanel view={controlView} organizationName={organization.name} />
+        ) : (
+          <EmptyState icon={ShieldAlert} title="Agent not found" description="This agent is not in your organization." />
+        ))}
+
+      {tab === "graph" &&
+        (!graphAllowed ? (
+          <EmptyState
+            icon={ShieldAlert}
+            title="The action graph isn't available to your role"
+            description="The action graph shows decisions, policies and risk, so it has the same visibility as security alerts."
+          />
+        ) : graphTab?.run ? (
+          <RunGraphView slug={agent.slug} run={graphTab.run} />
+        ) : graphTab?.list ? (
+          <RunListView slug={agent.slug} list={graphTab.list} />
+        ) : (
+          <EmptyState icon={ShieldAlert} title="Run not found" description="No run with that trace id exists for this agent." />
+        ))}
+
+      {tab === "trust" &&
+        (trustTab && trustTab[0] ? (
+          <TrustDetails trust={trustTab[0]} transitions={trustTab[1]?.transitions ?? []} />
+        ) : (
+          <EmptyState
+            icon={ShieldAlert}
+            title="Trust isn't available to your role"
+            description="Trust data has the same visibility as security alerts."
+          />
+        ))}
 
       {tab === "security" && (
         <div>

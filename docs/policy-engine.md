@@ -100,8 +100,9 @@ one covering the same action family. See `resolveBestPermission` in
 `LESS_THAN_OR_EQUAL`, `IN`, `NOT_IN`, `EXISTS`.
 
 Numeric operators require both sides to parse as finite numbers — a
-condition comparing `"hello" > 500` does not silently coerce to `0`; it just
-doesn't match. `IN`/`NOT_IN` compare against a list. `EQUALS`/`NOT_EQUALS`
+condition comparing `"hello" > 500` never silently coerces to `0`. What an
+incomparable or missing value *means* depends on the policy's decision —
+see "Missing and unusable fields" below. `IN`/`NOT_IN` compare against a list. `EQUALS`/`NOT_EQUALS`
 compare via string coercion, so they work across strings, numbers, and
 booleans consistently.
 
@@ -111,6 +112,87 @@ levels into the caller-supplied context object) or one of `action`,
 `resource`, `environment`, `tool`, `riskLevel`, `agentId`. There is no
 `eval`, no `Function()` constructor, and no user-supplied expression
 language — conditions are data, evaluated by fixed code paths, never code.
+
+### Telemetry fields — destinations, services, data, volume (control plane)
+
+Policies can also reference what the request says about **where data goes and
+what it touches** — the least-privilege levers for "this agent may only reach
+these hosts" or "never credentials":
+
+| Field | Value |
+|---|---|
+| `destination` | the host the action reaches (host-only, normalized) |
+| `service` | the service/API the action calls (normalized key) |
+| `dataSensitivity` | `LOW` `MEDIUM` `HIGH` `CRITICAL` — derived from the data classes; a caller's own declaration can only raise it |
+| `recordCount`, `byteCount` | volume (numbers; `GREATER_THAN` etc. work) |
+| `data.<CLASS>` | `true`/`false` per class: `data.PUBLIC`, `data.INTERNAL`, `data.CONFIDENTIAL`, `data.PII`, `data.FINANCIAL`, `data.HEALTH`, `data.CREDENTIALS` |
+
+Examples: **BLOCK** `crm.export` when `destination` **NOT_IN** `["api.crm.example.com"]`
+(an allow-list); **BLOCK** when `data.CREDENTIALS` **EQUALS** `true`;
+**REQUIRE_APPROVAL** when `dataSensitivity` **IN** `["HIGH","CRITICAL"]`;
+**BLOCK** when `recordCount` **GREATER_THAN** `1000`.
+
+Two rules you must know:
+
+1. **Unreported is not "none".** A field the request did not report is
+   *indeterminate*. Under STRICT matching (below) an indeterminate condition
+   **matches restrictive policies** (BLOCK / REQUIRE_APPROVAL / ALERT) and does
+   **not** match ALLOW. So the allow-list above blocks a request that omits its
+   destination: an agent cannot slip past it by staying silent. `data.PII` is
+   `false` only when the request reported its data classes and PII was not among
+   them; if classes were never reported it is unreported, not `false`.
+2. **These are agent-reported.** `environment` and `riskLevel` come from Aegis's
+   own records; a destination or data class is whatever the integration says.
+   A policy on them is exactly as strong as the integration's honesty, until
+   something that *observes* the destination (a gateway) exists. They constrain
+   a cooperative agent and make evasion by omission impossible; they do not
+   defeat a lying one. End-user ids are never addressable by policy.
+
+`LEGACY` matching (the explicit pre-P0 opt-out) keeps its old semantics: a missing
+field makes the condition false.
+
+## Missing and unusable fields (P0)
+
+Before P0, a scoped or conditioned policy simply didn't match when the
+caller left the field out — so "BLOCK `payments.*` in PRODUCTION" was
+bypassed by omitting `environment`, and "BLOCK refunds where amount > 1000"
+by omitting `amount`. STRICT matching (the default for every organization,
+`lib/policies/matcher.ts` + `lib/policies/decision-context.ts`) closes this:
+
+1. **Trusted context first.** `environment` comes from the Agent record for
+   agent callers (a different claimed value is ignored for matching and
+   stored as `PolicyEvaluation.claimedEnvironment`). `riskLevel` is
+   `max(claimed, agent's configured level, Aegis's own rule-based score)` —
+   a caller can raise it, never lower it (`claimedRiskLevel` keeps a lower
+   claim as evidence). The dashboard policy tester is an operator
+   simulation and may pick the environment explicitly.
+2. **Unknown fails closed for restrictive rules.** For `BLOCK`,
+   `REQUIRE_APPROVAL`, and `ALERT` policies, a scope field
+   (`resource`, `environment`, `tool`, `riskLevel`) the input doesn't carry
+   counts as a **match**, and a condition whose field is missing, `null`, or
+   not comparable (e.g. `amount: "lots"`) counts as **satisfied**.
+3. **Unknown never grants.** For `ALLOW` policies the same cases count as a
+   **non-match**.
+4. **Risk scopes are thresholds for restrictive rules.** A `BLOCK` /
+   `REQUIRE_APPROVAL` / `ALERT` policy scoped to `riskLevel: HIGH` applies
+   to HIGH **and CRITICAL**. ALLOW risk scopes stay exact (never widened).
+5. **`EXISTS` is never indeterminate** — absence is exactly what it tests.
+6. **Resource-scoped permissions.** With `resource` omitted, a
+   resource-scoped `BLOCK`/`REQUIRE_APPROVAL`/`ALERT` permission for the
+   action is weighed against the any-resource permission and the stricter
+   one wins; a resource-scoped `ALLOW` is never credited.
+
+Net effect: omitting information can only make a decision stricter, never
+looser. Every evaluation records `matchingMode` (`STRICT`/`LEGACY`).
+
+**Compatibility opt-out.** `Organization.legacyPolicyMatching = true`
+restores the pre-P0 matcher (caller-declared context, omitted field = no
+match) for that organization only. There is deliberately no dashboard
+toggle — it weakens security — so it is applied by support with a direct
+database `UPDATE` (not captured by the in-app audit trail — record it in your change log), recorded on every evaluation as `matchingMode: LEGACY`, and
+meant to be temporary while an integration is fixed to send complete
+context. It never disables the kill switch, approval binding, or any other
+P0 fix. See `docs/AEGIS_P0_IMPLEMENTATION.md` §2.
 
 ## Security assumptions
 

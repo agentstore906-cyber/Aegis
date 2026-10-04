@@ -15,11 +15,19 @@ export function CopyButton({
   className?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(value);
+      setFailed(false);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be denied (insecure context, permissions). Say so instead of pretending it was copied.
+      setFailed(true);
+      setTimeout(() => setFailed(false), 4000);
+    }
   }
 
   return (
@@ -28,9 +36,12 @@ export function CopyButton({
       variant="secondary"
       size="sm"
       onClick={handleCopy}
+      aria-live="polite"
       className={cn(className)}
     >
-      {copied ? (
+      {failed ? (
+        <>Copy failed — select and copy manually</>
+      ) : copied ? (
         <>
           <Check className="size-3.5" aria-hidden="true" />
           Copied

@@ -221,6 +221,105 @@ describe("Aegis client", () => {
     });
   });
 
+  describe("idempotency and single-use approvals (0.5.0)", () => {
+    type Init = RequestInit & { headers: Record<string, string> };
+
+    it("generates an Idempotency-Key per authorize() call and reuses it across that call's retries", async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ error: { code: "INTERNAL_ERROR", message: "boom" } }, { status: 503 }))
+        .mockResolvedValueOnce(jsonResponse({ decision: "ALLOW", evaluationId: "eval_r", traceId: "t" }));
+
+      await client().authorize({ agent: "finance-agent", action: "invoice.read" });
+
+      const keys = fetchMock.mock.calls.map(([, init]) => (init as Init).headers["Idempotency-Key"]);
+      expect(keys).toHaveLength(2);
+      expect(keys[0]).toMatch(/^idem_/);
+      expect(keys[1]).toBe(keys[0]);
+    });
+
+    it("uses a different key for each separate call (legitimate repeats are not deduplicated)", async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ decision: "ALLOW", evaluationId: "e1", traceId: "t" }))
+        .mockResolvedValueOnce(jsonResponse({ decision: "ALLOW", evaluationId: "e2", traceId: "t" }));
+
+      await client().authorize({ agent: "finance-agent", action: "invoice.read" });
+      await client().authorize({ agent: "finance-agent", action: "invoice.read" });
+
+      const keys = fetchMock.mock.calls.map(([, init]) => (init as Init).headers["Idempotency-Key"]);
+      expect(keys[0]).not.toBe(keys[1]);
+    });
+
+    it("track() also sends a per-call key, never as a body field", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ id: "evt", traceId: null }));
+      await client().track({ agent: "finance-agent", eventType: "ACTION", action: "x", idempotencyKey: "mine" });
+      const [, init] = fetchMock.mock.calls[0] as [string, Init];
+      expect(init.headers["Idempotency-Key"]).toBe("mine");
+      expect(JSON.parse(init.body as string).idempotencyKey).toBeUndefined();
+    });
+
+    it("retries (same key) when the server says the original attempt is still in progress", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          jsonResponse({ error: { code: "IDEMPOTENCY_KEY_IN_PROGRESS", message: "in progress" } }, { status: 409 })
+        )
+        .mockResolvedValueOnce(jsonResponse({ decision: "BLOCK", evaluationId: "e", traceId: "t", reason: "no" }));
+
+      const result = await client().authorize({ agent: "finance-agent", action: "invoice.read" });
+      expect(result.decision).toBe("BLOCK");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not retry a genuine idempotency conflict", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ error: { code: "IDEMPOTENCY_KEY_CONFLICT", message: "different body" } }, { status: 409 })
+      );
+      await expect(client().authorize({ agent: "finance-agent", action: "invoice.read" })).rejects.toBeInstanceOf(
+        AegisValidationError
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("passes approvalRequestId through to consume an approval", async () => {
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ decision: "ALLOW", evaluationId: "e", traceId: "t", decisionSource: "APPROVAL", consumedApprovalRequestId: "apr_1" })
+      );
+      const result = await client().authorize({ agent: "finance-agent", action: "refund.issue", approvalRequestId: "apr_1" });
+      const [, init] = fetchMock.mock.calls[0] as [string, Init];
+      expect(JSON.parse(init.body as string).approvalRequestId).toBe("apr_1");
+      expect(result.decision === "ALLOW" && result.consumedApprovalRequestId).toBe("apr_1");
+    });
+  });
+
+  describe("structured telemetry (0.6.0)", () => {
+    it("passes context fields through and serializes occurredAt as ISO-8601", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ id: "evt", traceId: "t", parentEventId: "evt_parent", duplicate: false }));
+      const occurredAt = new Date("2026-10-01T10:42:00.000Z");
+      const result = await client().track({
+        agent: "finance-agent",
+        eventType: "DATA_ACCESS",
+        action: "crm.export",
+        clientEventId: "export-1",
+        parentClientEventId: "task-1",
+        evaluationId: "eval_1",
+        destination: "https://files.example.com/upload",
+        dataClasses: ["PII"],
+        recordCount: 1200,
+        occurredAt,
+      });
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body).toMatchObject({
+        clientEventId: "export-1",
+        parentClientEventId: "task-1",
+        evaluationId: "eval_1",
+        destination: "https://files.example.com/upload",
+        dataClasses: ["PII"],
+        recordCount: 1200,
+        occurredAt: "2026-10-01T10:42:00.000Z",
+      });
+      expect(result).toMatchObject({ parentEventId: "evt_parent", duplicate: false });
+    });
+  });
+
   describe("waitForApproval", () => {
     it("returns once the status is no longer PENDING", async () => {
       fetchMock
@@ -291,5 +390,23 @@ describe("Aegis client", () => {
         AegisNetworkError
       );
     });
+  });
+});
+
+describe("Aegis.handshake", () => {
+  it("POSTs to the handshake endpoint with the bearer key and returns what the server confirmed", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ connected: true, established: true, agent: { slug: "a", name: "A" }, firstHandshakeAt: "2026-10-03T00:00:00.000Z", lastSeenAt: "2026-10-03T00:00:00.000Z" })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const aegis = new Aegis({ apiKey: "aegis_live_x", baseUrl: "https://aegis.example/" });
+    const result = await aegis.handshake({ sdkVersion: "0.8.0", framework: "custom" });
+    expect(result.established).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://aegis.example/api/v1/connect/handshake");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).authorization ?? (init.headers as Record<string, string>).Authorization).toBe("Bearer aegis_live_x");
+    expect(JSON.parse(String(init.body))).toEqual({ sdkVersion: "0.8.0", framework: "custom" });
+    vi.unstubAllGlobals();
   });
 });

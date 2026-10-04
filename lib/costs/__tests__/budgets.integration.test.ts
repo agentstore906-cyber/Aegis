@@ -7,6 +7,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Agent } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ingestActivityEvent } from "@/lib/activity/ingest";
+import { drainDeferredTasks } from "@/lib/server/defer";
+
+// Detectors/alerts/webhooks run after the response (lib/server/defer.ts);
+// outside a request scope they start immediately and are drained here so
+// assertions see their effects deterministically.
+async function ingest(...args: Parameters<typeof ingestActivityEvent>) {
+  const event = await ingestActivityEvent(...args);
+  await drainDeferredTasks();
+  return event;
+}
+
 import * as repo from "@/lib/costs/budgets";
 import { DuplicateBudgetError } from "@/lib/costs/budgets";
 import { canManageBudgets } from "@/lib/costs/authorization";
@@ -32,6 +43,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await drainDeferredTasks();
   await prisma.securityAlert.deleteMany({ where: { organizationId: org.id } });
   await prisma.activityEvent.deleteMany({ where: { organizationId: org.id } });
   await prisma.budget.deleteMany({ where: { organizationId: org.id } });
@@ -103,7 +115,7 @@ describe("budget check — never claims spending was blocked", () => {
         status: "SUCCESS",
         cost: 2.0, // $2.00 — well over the $1.00 daily limit
       } as EventIngestInput;
-      await ingestActivityEvent(org.id, agent, input);
+      await ingest(org.id, agent, input);
 
       const alert = await prisma.securityAlert.findFirst({
         where: { organizationId: org.id, agentId: agent.id, type: "BUDGET_EXCEEDED" },
@@ -135,7 +147,7 @@ describe("budget check — never claims spending was blocked", () => {
         cost: 0.5,
         traceId: `${RUN_ID}-warning-case`,
       } as EventIngestInput;
-      await ingestActivityEvent(org.id, agent, input);
+      await ingest(org.id, agent, input);
 
       const alert = await prisma.securityAlert.findFirst({
         where: { organizationId: org.id, agentId: agent.id, type: "BUDGET_WARNING" },

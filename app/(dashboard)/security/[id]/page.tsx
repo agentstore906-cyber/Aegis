@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
-import { getSecurityAlert, listSecurityAlertsForAgent } from "@/lib/security/repository";
+import { getSecurityAlert, listAlertOccurrences, listSecurityAlertsForAgent } from "@/lib/security/repository";
 import { canManageAgents } from "@/lib/agents/authorization";
 import { getActivityByTraceId } from "@/lib/activity/queries";
 import { getPolicyEvaluationsByTraceId } from "@/lib/policies/repository";
@@ -21,6 +21,8 @@ import { AgentStatusToggle } from "@/components/agents/agent-status-toggle";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { MetadataView } from "@/components/activity/metadata-view";
 import { ButtonLink } from "@/components/ui/button";
+import { OpenIncidentButton } from "@/components/incidents/incident-actions";
+import { canManageIncidents } from "@/lib/incidents/authorization";
 
 export const metadata: Metadata = { title: "Security alert" };
 
@@ -31,10 +33,11 @@ export default async function SecurityAlertDetailPage({ params }: { params: Prom
   const alert = await getSecurityAlert(organization.id, id);
   if (!alert) notFound();
 
-  const [relatedActivity, relatedEvaluations, agentHistory] = await Promise.all([
+  const [relatedActivity, relatedEvaluations, agentHistory, occurrenceHistory] = await Promise.all([
     alert.traceId ? getActivityByTraceId(organization.id, alert.traceId) : Promise.resolve([]),
     alert.traceId ? getPolicyEvaluationsByTraceId(organization.id, alert.traceId) : Promise.resolve([]),
     listSecurityAlertsForAgent(organization.id, alert.agentId, 6),
+    listAlertOccurrences(organization.id, alert.id),
   ]);
 
   const otherAgentAlerts = agentHistory.filter((a) => a.id !== alert.id);
@@ -98,12 +101,42 @@ export default async function SecurityAlertDetailPage({ params }: { params: Prom
 
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle>Evidence</CardTitle>
+          <CardTitle>Evidence (first occurrence)</CardTitle>
         </CardHeader>
         <CardContent>
           <MetadataView metadata={alert.evidence} />
         </CardContent>
       </Card>
+
+      {occurrenceHistory.total > 0 && (
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle>
+              Occurrences ({occurrenceHistory.total})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Every time this was detected, with its own evidence — repeats are grouped into this alert, never
+              overwritten.
+              {occurrenceHistory.total > occurrenceHistory.occurrences.length &&
+                ` Showing the ${occurrenceHistory.occurrences.length} most recent.`}
+            </p>
+            <ol className="space-y-3">
+              {occurrenceHistory.occurrences.map((occurrence) => (
+                <li key={occurrence.id} className="rounded-md border border-border p-3">
+                  <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <SecurityAlertSeverityBadge severity={occurrence.severity} />
+                    <span>{formatDateTime(occurrence.occurredAt)}</span>
+                    {occurrence.traceId && <span className="font-mono">trace {occurrence.traceId}</span>}
+                  </div>
+                  <MetadataView metadata={occurrence.evidence} />
+                </li>
+              ))}
+            </ol>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="mt-4">
         <CardHeader>
@@ -146,6 +179,7 @@ export default async function SecurityAlertDetailPage({ params }: { params: Prom
             <ButtonLink href={createPolicyHref} variant="secondary" size="sm">
               Create policy from alert
             </ButtonLink>
+            {canManageIncidents(role) && <OpenIncidentButton anchorType="SECURITY_ALERT" anchorId={alert.id} />}
             {canManageAgents(role) && <AgentStatusToggle slug={alert.agent.slug} status={alert.agent.status} />}
           </div>
           <p className="text-xs text-muted-foreground">
@@ -168,7 +202,7 @@ export default async function SecurityAlertDetailPage({ params }: { params: Prom
                     <p className="truncate text-foreground">{event.action.replaceAll("_", " ")}</p>
                     <p className="text-xs text-muted-foreground">{formatDateTime(event.timestamp)}</p>
                   </div>
-                  <ActivityStatusBadge status={event.status} />
+                  <ActivityStatusBadge status={event.status} source={event.source} />
                 </div>
               ))}
             </div>

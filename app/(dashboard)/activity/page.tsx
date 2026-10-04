@@ -71,12 +71,7 @@ export default async function ActivityPage({
       <LiveActivityRefresh />
       <PageHeader
         title="Activity"
-        description={`${total} event${total === 1 ? "" : "s"} across ${organization.name}'s agents`}
-        action={
-          <Badge tone="success" dot>
-            Live
-          </Badge>
-        }
+        description={`${total} event${total === 1 ? "" : "s"} across ${organization.name}'s agents. The page refreshes itself; there is no live stream.`}
       />
 
       <div className="mb-4">

@@ -12,8 +12,8 @@ export function CtaSection() {
           Start with visibility. Add control as your AI workforce grows.
         </p>
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <TrackedButtonLink href="/sign-up" size="lg" event="landing_cta_clicked" eventProps={{ source: "cta_section" }}>
-            Start Free
+          <TrackedButtonLink href="/scan" size="lg" event="landing_cta_clicked" eventProps={{ source: "cta_section_scan" }}>
+            Scan your AI agent in 60 seconds
           </TrackedButtonLink>
           <ButtonLink href="/pricing" variant="secondary" size="lg">
             View pricing

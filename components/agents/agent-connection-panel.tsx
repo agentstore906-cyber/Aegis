@@ -16,6 +16,8 @@ import {
   disconnectAgentAction,
 } from "@/lib/agents/connect-actions";
 import type { ConnectorCapabilities } from "@/lib/connectors/types";
+import { ConnectionCredential } from "@/components/agents/connection/connection-credential";
+import { ConnectionInstructions } from "@/components/agents/connection/connection-instructions";
 
 const CONNECTOR_LABELS: Record<ConnectorType, string> = {
   OPENAI: "OpenAI",
@@ -46,6 +48,7 @@ export function AgentConnectionPanel({
   lastHealthCheckAtLabel,
   lastHealthError,
   canManage,
+  derived,
 }: {
   agentSlug: string;
   connectorType: ConnectorType;
@@ -57,11 +60,15 @@ export function AgentConnectionPanel({
   lastHealthCheckAtLabel: string | null;
   lastHealthError: string | null;
   canManage: boolean;
+  /** The evidence-based state (lib/agents/connection-state.ts). When present it replaces the raw stored status. */
+  derived?: { state: string; stateLabel: string; detail: string; reason: string | null; lastSeenLabel: string | null };
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [showReconnectForm, setShowReconnectForm] = useState(false);
   const [reconnectCredential, setReconnectCredential] = useState("");
+  // A freshly issued credential (Aegis-key connections). Shown once, here, because it is not stored anywhere readable.
+  const [issuedKey, setIssuedKey] = useState<string | null>(null);
 
   const isDisconnected = status === "DISCONNECTED";
   const needsReconnect = status === "RECONNECT_REQUIRED" || status === "DEGRADED" || status === "FAILED";
@@ -85,6 +92,7 @@ export function AgentConnectionPanel({
       }
       setShowReconnectForm(false);
       setReconnectCredential("");
+      if ("apiKeyRaw" in result && result.apiKeyRaw) setIssuedKey(result.apiKeyRaw);
     });
   }
 
@@ -106,14 +114,22 @@ export function AgentConnectionPanel({
           <p className="text-sm font-semibold text-foreground">Connection</p>
           <p className="mt-0.5 text-xs text-muted-foreground">{CONNECTOR_LABELS[connectorType]}</p>
         </div>
-        <ConnectionStatusBadge status={status} />
+        {derived ? (
+          <Badge tone={derived.state === "CONNECTED" ? "success" : derived.state === "ERROR" || derived.state === "REVOKED" ? "danger" : derived.state === "NOT_SEEN_RECENTLY" ? "warning" : "neutral"} dot>
+            {derived.stateLabel}
+          </Badge>
+        ) : (
+          <ConnectionStatusBadge status={status} />
+        )}
       </div>
 
       <div className="space-y-3 px-5 py-4 text-sm">
         {externalAccountLabel && (
           <Row label="Account" value={<code className="text-xs">{externalAccountLabel}</code>} />
         )}
-        <Row label="Connected" value={connectedAtLabel} />
+        {derived && <p className="text-xs text-muted-foreground">{derived.reason ?? derived.detail}</p>}
+        {derived?.lastSeenLabel && <Row label="Last seen" value={derived.lastSeenLabel} />}
+        <Row label="Connection created" value={connectedAtLabel} />
         {lastVerifiedAtLabel && <Row label="Last verified" value={lastVerifiedAtLabel} />}
         {lastHealthCheckAtLabel && <Row label="Last checked" value={lastHealthCheckAtLabel} />}
 
@@ -141,6 +157,15 @@ export function AgentConnectionPanel({
       {error && (
         <div className="px-5 pb-4">
           <Alert tone="danger">{error}</Alert>
+        </div>
+      )}
+
+      {issuedKey && (
+        <div className="space-y-4 border-t border-border px-5 py-4">
+          <p className="text-sm font-medium text-foreground">New credential issued. The previous one no longer works.</p>
+          <ConnectionCredential secret={issuedKey} />
+          <ConnectionInstructions />
+          <p className="text-xs text-muted-foreground">The agent shows as waiting until a request with this credential reaches Aegis.</p>
         </div>
       )}
 
@@ -190,7 +215,7 @@ export function AgentConnectionPanel({
           {!isDisconnected && (
             <ConfirmDialog
               title="Disconnect agent"
-              description="Aegis will stop accepting new activity for this agent and discard its stored credential. Historical activity is kept. This can't be undone from here — you can reconnect afterward, but it will be a new connection."
+              description="Aegis revokes this agent's credential immediately. Requests that use it are rejected and the agent shows as Revoked. Activity, decisions and audit history are kept. You can reconnect later; that issues a new credential for the same agent."
               confirmLabel="Disconnect"
               onConfirm={disconnect}
               trigger={

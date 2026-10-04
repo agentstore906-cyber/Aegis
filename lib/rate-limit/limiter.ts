@@ -66,5 +66,6 @@ export class InMemoryRateLimiter implements RateLimiter {
   }
 }
 
-/** 60 requests/minute per API key — applied to every app/api/v1/* route via lib/api/handler.ts. */
-export const apiRateLimiter: RateLimiter = new InMemoryRateLimiter(60, 60_000);
+// The shared (cross-instance) implementation and the `apiRateLimiter`
+// instance live in lib/rate-limit/postgres.ts — this file stays free of
+// database imports so the in-memory limiter is usable anywhere.

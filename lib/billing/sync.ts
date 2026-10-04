@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { recordAuditEvent } from "@/lib/audit/service";
 import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
 import { trackEvent } from "@/lib/analytics/track";
+import { attributeToScanner } from "@/lib/scanner/analytics";
 import { DEFAULT_PLAN_ID } from "@/lib/billing/plans";
 import { mapSubscriptionStatus, planIdForPriceId, statusGrantsPaidPlan } from "@/lib/billing/paddle";
 
@@ -61,6 +62,8 @@ export async function syncSubscriptionState(
 
   if (eventName === "subscription.created") {
     trackEvent("subscription_started", { organizationId });
+    // Free scanner funnel: attribute the subscription to the scan that brought this workspace in (no-op otherwise).
+    await attributeToScanner(organizationId, status === "trialing" ? "trial_started" : "subscription_started");
   }
 }
 

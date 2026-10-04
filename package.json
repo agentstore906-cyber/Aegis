@@ -17,6 +17,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "test": "vitest run",
+    "test:unit": "vitest run --exclude \"**/*.integration.test.ts\"",
     "build:sdk": "npm run build --workspace packages/agent-sdk",
     "test:sdk": "npm run test --workspace packages/agent-sdk"
   },

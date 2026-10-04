@@ -8,6 +8,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Agent } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ingestActivityEvent } from "@/lib/activity/ingest";
+import { drainDeferredTasks } from "@/lib/server/defer";
+
+// Detectors/alerts/webhooks run after the response (lib/server/defer.ts);
+// outside a request scope they start immediately and are drained here so
+// assertions see their effects deterministically.
+async function ingest(...args: Parameters<typeof ingestActivityEvent>) {
+  const event = await ingestActivityEvent(...args);
+  await drainDeferredTasks();
+  return event;
+}
+
 import type { EventIngestInput } from "@/lib/validation/api";
 
 const RUN_ID = `test_${Date.now()}`;
@@ -58,6 +69,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await drainDeferredTasks();
   await prisma.securityAlert.deleteMany({ where: { organizationId: org.id } });
   await prisma.activityEvent.deleteMany({ where: { organizationId: org.id } });
   await prisma.policy.deleteMany({ where: { organizationId: org.id } });
@@ -68,7 +80,7 @@ afterAll(async () => {
 
 describe("post-hoc policy violation detection (Firewall truthfulness)", () => {
   it("detects a violation without claiming the action was blocked, and never rewrites the self-reported status", async () => {
-    const event = await ingestActivityEvent(org.id, agent, baseInput({ action: "customer.delete" }));
+    const event = await ingest(org.id, agent, baseInput({ action: "customer.delete" }));
 
     // The agent said this succeeded — Aegis must not silently overwrite that.
     expect(event.status).toBe("ALLOWED");
@@ -82,7 +94,7 @@ describe("post-hoc policy violation detection (Firewall truthfulness)", () => {
   });
 
   it("does not fire when the agent already self-reported the action as BLOCKED", async () => {
-    await ingestActivityEvent(
+    await ingest(
       org.id,
       agent,
       baseInput({ action: "customer.delete", status: "BLOCKED", traceId: `${RUN_ID}-already-blocked` })
@@ -98,7 +110,7 @@ describe("post-hoc policy violation detection (Firewall truthfulness)", () => {
   });
 
   it("does not fire for an action nothing blocks", async () => {
-    await ingestActivityEvent(org.id, agent, baseInput({ action: "crm.contact.read", traceId: `${RUN_ID}-allowed-action` }));
+    await ingest(org.id, agent, baseInput({ action: "crm.contact.read", traceId: `${RUN_ID}-allowed-action` }));
 
     const alerts = await prisma.securityAlert.findMany({
       where: { organizationId: org.id, agentId: agent.id, type: "POLICY_VIOLATION_DETECTED" },
@@ -109,7 +121,7 @@ describe("post-hoc policy violation detection (Firewall truthfulness)", () => {
 
 describe("prompt injection indicator", () => {
   it("flags suspicious reported text as a low-confidence indicator, not a confirmation", async () => {
-    await ingestActivityEvent(
+    await ingest(
       org.id,
       agent,
       baseInput({
@@ -127,7 +139,7 @@ describe("prompt injection indicator", () => {
   });
 
   it("does not fire for ordinary reported text", async () => {
-    await ingestActivityEvent(
+    await ingest(
       org.id,
       agent,
       baseInput({ action: "ticket.reply", description: "Thanks, I'll follow up tomorrow." })
@@ -141,7 +153,7 @@ describe("prompt injection indicator", () => {
 
 describe("credential exposure indicator", () => {
   it("flags a secret-shaped metadata field by name only, never by value, and still redacts the stored event", async () => {
-    const event = await ingestActivityEvent(
+    const event = await ingest(
       org.id,
       agent,
       baseInput({ action: "deploy.execute", metadata: { apiKey: "sk-live-super-secret-value" } })

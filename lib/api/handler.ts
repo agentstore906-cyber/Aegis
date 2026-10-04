@@ -11,7 +11,7 @@ import {
   MissingApiKeyError,
   RevokedApiKeyError,
 } from "@/lib/api-keys/types";
-import { apiRateLimiter } from "@/lib/rate-limit/limiter";
+import { apiRateLimiter } from "@/lib/rate-limit/postgres";
 import { ApiError, apiErrorResponse } from "@/lib/api/errors";
 import { logApiRequest } from "@/lib/api/logger";
 

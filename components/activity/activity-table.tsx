@@ -46,7 +46,7 @@ export function ActivityTable({ events }: { events: EventRow[] }) {
             <Td className="max-w-40 truncate text-muted-foreground">{event.resource ?? "—"}</Td>
             <Td className="text-muted-foreground">{event.toolName ?? "—"}</Td>
             <Td>
-              <ActivityStatusBadge status={event.status} />
+              <ActivityStatusBadge status={event.status} source={event.source} />
             </Td>
             <Td>
               <RiskBadge level={event.riskLevel} />

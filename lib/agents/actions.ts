@@ -13,6 +13,8 @@ import {
   setAgentControlState,
   AgentNotFoundError,
   AgentArchivedError,
+  AgentResumeForbiddenError,
+  AgentStatusConflictError,
   type AgentControlState,
 } from "@/lib/agents/control";
 import type { EnforcementOutcome } from "@/lib/enforcement/types";
@@ -114,13 +116,13 @@ export async function setAgentStatusAction(
   }
 
   try {
-    const result = await setAgentControlState(organization.id, agentSlug, status, user.id, reason);
+    const result = await setAgentControlState(organization.id, agentSlug, status, user.id, reason, { actorRole: role });
     revalidatePath("/agents");
     revalidatePath(`/agents/${agentSlug}`);
     revalidatePath("/overview");
     return { outcome: result.outcome };
   } catch (error) {
-    if (error instanceof AgentNotFoundError || error instanceof AgentArchivedError) {
+    if (error instanceof AgentNotFoundError || error instanceof AgentArchivedError || error instanceof AgentResumeForbiddenError || error instanceof AgentStatusConflictError) {
       return { error: error.message };
     }
     throw error;

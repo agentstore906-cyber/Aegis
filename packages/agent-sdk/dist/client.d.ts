@@ -1,4 +1,4 @@
-import type { AegisConfig, ApprovalStatusResult, AuthorizationResult, AuthorizeInput, ConvenienceEventInput, RegisterAgentInput, RegisterAgentResult, TrackEventInput, TrackEventResult, WaitForApprovalInput } from "./types.js";
+import type { AegisConfig, ApprovalStatusResult, AuthorizationResult, AuthorizeInput, AlertResult, AllowResult, GuardInput, ConvenienceEventInput, HandshakeInput, HandshakeResult, RegisterAgentInput, RegisterAgentResult, TrackEventInput, TrackEventResult, WaitForApprovalInput } from "./types.js";
 /**
  * The Aegis agent SDK. Never executes a tool or resumes agent work on its
  * own — it only tells you what Aegis decided. Your code decides what to
@@ -8,7 +8,12 @@ import type { AegisConfig, ApprovalStatusResult, AuthorizationResult, AuthorizeI
 export declare class Aegis {
     private readonly http;
     constructor(config: AegisConfig);
-    /** Reports an action your agent already took. Does not ask for authorization — see `authorize()` for that. */
+    /**
+     * Reports an action your agent already took. Does not ask for
+     * authorization — see `authorize()` for that. Sends an Idempotency-Key
+     * (yours, or one generated per call) that is reused across retries, so a
+     * retry never records the event twice.
+     */
     track(input: TrackEventInput): Promise<TrackEventResult>;
     /** Your agent process started a run. */
     trackAgentStarted(input: ConvenienceEventInput): Promise<TrackEventResult>;
@@ -30,7 +35,13 @@ export declare class Aegis {
     trackError(input: ConvenienceEventInput): Promise<TrackEventResult>;
     /** Your agent's own permissions/scopes changed. */
     trackPermissionChanged(input: ConvenienceEventInput): Promise<TrackEventResult>;
-    /** Asks Aegis whether your agent may perform an action. Auto-generates a traceId if you don't supply one. */
+    /**
+     * Asks Aegis whether your agent may perform an action. Auto-generates a
+     * traceId if you don't supply one, and an Idempotency-Key per call (reused
+     * across this call's retries) so a retry can never create a duplicate
+     * evaluation or approval request. Pass `approvalRequestId` to use an
+     * APPROVED approval for its single execution.
+     */
     authorize(input: AuthorizeInput): Promise<AuthorizationResult>;
     /** Fetches the current state of a REQUIRE_APPROVAL decision without waiting. */
     getApprovalStatus(approvalRequestId: string): Promise<ApprovalStatusResult>;
@@ -42,6 +53,18 @@ export declare class Aegis {
      * resolves with a stale PENDING result.
      */
     waitForApproval(input: WaitForApprovalInput): Promise<ApprovalStatusResult>;
+    /**
+     * In-process enforcement for one tool call (0.7.0): authorize, run `fn` only on an allowing decision,
+     * and report the outcome under that decision. Fails CLOSED by default. It guards the calls you route
+     * through it — it cannot stop code that calls the tool directly. See the README's "guard()" section.
+     */
+    guard<T>(input: GuardInput, fn: (decision: AllowResult | AlertResult | null) => Promise<T> | T): Promise<T>;
+    /**
+     * Tells Aegis "this agent is up and reachable with this credential" (0.8.0). Aegis marks the connection
+     * established only because this authenticated request actually arrived; it is idempotent, so calling it on every
+     * start is safe. Needs a key bound to one agent (the one the dashboard issued when you connected the agent).
+     */
+    handshake(input?: HandshakeInput): Promise<HandshakeResult>;
     /** Lightweight auto-provisioning so a new agent doesn't need a dashboard visit before its first event/authorize call. */
     registerAgent(input: RegisterAgentInput): Promise<RegisterAgentResult>;
 }

@@ -31,7 +31,7 @@ type Rule = {
 };
 
 // Exported as keyword arrays (not just the derived regex) so
-// lib/security/baseline.ts and lib/security/risk-score.ts can build a
+// lib/security/risk-score.ts (and formerly lib/security/baseline.ts) can build a
 // Prisma `OR: [{ action: { contains: keyword } }, ...]` filter from the
 // exact same vocabulary used here — one definition of "sensitive" /
 // "destructive," never a second regex drifting out of sync with a second

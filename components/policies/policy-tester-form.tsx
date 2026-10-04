@@ -8,17 +8,37 @@ import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DecisionBadge } from "@/components/dashboard/status-badges";
+import { SimulationResultView } from "@/components/policies/simulation-result";
 import { runPolicyTesterAction, type PolicyTesterState } from "@/lib/policies/actions";
 import { AGENT_ENVIRONMENTS, AGENT_RISK_LEVELS } from "@/lib/validation/agent";
 
 const initialState: PolicyTesterState = {};
 
-export function PolicyTesterForm({ agents }: { agents: { id: string; name: string }[] }) {
+const DATA_CLASSES = ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "PII", "FINANCIAL", "HEALTH", "CREDENTIALS"] as const;
+
+export function PolicyTesterForm({ agents, canRecord }: { agents: { id: string; name: string }[]; canRecord: boolean }) {
   const [state, formAction, pending] = useActionState(runPolicyTesterAction, initialState);
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <form action={formAction} className="space-y-5 rounded-lg border border-border bg-surface p-5" noValidate>
+        <fieldset className="space-y-2">
+          <legend className="text-xs font-medium text-muted-foreground">Mode</legend>
+          <label className="flex items-start gap-2 text-sm text-foreground">
+            <input type="radio" name="mode" value="simulate" defaultChecked className="mt-1" />
+            <span>
+              <strong>Simulate</strong> — see what Aegis would do. Nothing is recorded, no approval is opened, and the agent&rsquo;s trust and history are untouched.
+            </span>
+          </label>
+          <label className={`flex items-start gap-2 text-sm ${canRecord ? "text-foreground" : "text-muted-foreground"}`}>
+            <input type="radio" name="mode" value="record" disabled={!canRecord} className="mt-1" />
+            <span>
+              <strong>Record</strong> — run the real engine and keep the evaluation. It can open an approval request or raise an alert and counts toward the agent&rsquo;s trust and history.
+              {!canRecord && " (Needs permission to manage policies.)"}
+            </span>
+          </label>
+        </fieldset>
+
         <div>
           <Label htmlFor="agentId">Agent</Label>
           <Select id="agentId" name="agentId" required defaultValue="">
@@ -71,6 +91,38 @@ export function PolicyTesterForm({ agents }: { agents: { id: string; name: strin
           </div>
         </div>
 
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="destination">Destination (host)</Label>
+            <Input id="destination" name="destination" maxLength={253} placeholder="api.example.com" />
+          </div>
+          <div>
+            <Label htmlFor="service">Service</Label>
+            <Input id="service" name="service" maxLength={60} placeholder="crm-api" />
+          </div>
+          <div>
+            <Label htmlFor="recordCount">Records touched</Label>
+            <Input id="recordCount" name="recordCount" type="number" min={0} placeholder="Optional" />
+          </div>
+          <div>
+            <Label htmlFor="byteCount">Bytes touched</Label>
+            <Input id="byteCount" name="byteCount" type="number" min={0} placeholder="Optional" />
+          </div>
+        </div>
+        <fieldset>
+          <legend className="text-xs font-medium text-muted-foreground">Data classes</legend>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            {DATA_CLASSES.map((c) => (
+              <label key={c} className="flex items-center gap-1.5 text-sm text-foreground">
+                <input type="checkbox" name="dataClasses" value={c} /> {c.toLowerCase()}
+              </label>
+            ))}
+          </div>
+          <FieldHint>
+            Optional. Policies can match these. A field you leave blank is <em>unreported</em>, and restrictive policies on it will apply (fail closed).
+          </FieldHint>
+        </fieldset>
+
         <div>
           <Label htmlFor="contextJson">Context (JSON)</Label>
           <Textarea
@@ -87,17 +139,19 @@ export function PolicyTesterForm({ agents }: { agents: { id: string; name: strin
 
         <Button type="submit" disabled={pending} className="w-full">
           <FlaskConical className="size-4" aria-hidden="true" />
-          {pending ? "Evaluating…" : "Evaluate"}
+          {pending ? "Working…" : "Run"}
         </Button>
       </form>
 
       <div>
-        {!state.result ? (
+        {state.simulation ? (
+          <SimulationResultView simulation={state.simulation} />
+        ) : !state.result ? (
           <div className="flex h-full min-h-64 flex-col items-center justify-center rounded-lg border border-dashed border-border p-8 text-center">
             <FlaskConical className="size-6 text-muted-foreground" aria-hidden="true" />
             <p className="mt-3 text-sm font-medium text-foreground">No evaluation yet</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Fill out the form and click Evaluate to see what Aegis would decide.
+              Fill out the form and click Run to see what Aegis would decide.
             </p>
           </div>
         ) : (

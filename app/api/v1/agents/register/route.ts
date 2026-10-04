@@ -3,7 +3,8 @@ import { readJsonBody } from "@/lib/api/request";
 import { withIdempotency } from "@/lib/api/idempotency";
 import { ApiError } from "@/lib/api/errors";
 import { agentRegisterSchema } from "@/lib/validation/api";
-import { registerAgent } from "@/lib/agents/register";
+import { AgentRegistrationNotAuthorizedError, registerAgent } from "@/lib/agents/register";
+import { AgentLimitReachedError } from "@/lib/agents/creation-guard";
 
 const MAX_BODY_BYTES = 8 * 1024;
 
@@ -12,6 +13,8 @@ const MAX_BODY_BYTES = 8 * 1024;
  * quickstart doesn't require a dashboard visit before the first /events or
  * /evaluate call. Upserts by name-derived slug (see lib/agents/register.ts)
  * — calling it again with the same name returns the existing agent.
+ * Creating a *new* agent requires an organization-wide key and is subject
+ * to the plan's agent limit (403 PLAN_LIMIT_REACHED).
  */
 export const POST = withApiAuth("agents.register", "events:write", async (request, ctx) => {
   const rawBody = await readJsonBody(request, MAX_BODY_BYTES);
@@ -31,7 +34,17 @@ export const POST = withApiAuth("agents.register", "events:write", async (reques
       requestBody: rawBody,
     },
     async () => {
-      const { agent, created } = await registerAgent(ctx.organization.id, parsed.data);
+      const { agent, created } = await registerAgent(ctx.organization.id, parsed.data, {
+        agentId: ctx.apiKey.agentId,
+        organizationId: ctx.apiKey.organizationId,
+        apiKeyId: ctx.apiKey.id,
+      }).catch((error: unknown) => {
+        if (error instanceof AgentLimitReachedError) throw new ApiError("PLAN_LIMIT_REACHED", error.message, 403);
+        if (error instanceof AgentRegistrationNotAuthorizedError) {
+          throw new ApiError("AGENT_NOT_AUTHORIZED", error.message, 403);
+        }
+        throw error;
+      });
       ctx.setAgentId(agent.id);
       return { status: created ? 201 : 200, body: { id: agent.id, slug: agent.slug, name: agent.name, created } };
     }

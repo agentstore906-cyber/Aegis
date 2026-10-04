@@ -8,6 +8,15 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { prisma } from "@/lib/db";
 import { createWebhookEndpoint, listWebhookEndpoints, setWebhookEndpointStatus } from "@/lib/webhooks/repository";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
+import { drainDeferredTasks } from "@/lib/server/defer";
+
+// Delivery is deferred until after the response (lib/server/defer.ts);
+// drain so assertions see the completed delivery attempts.
+async function dispatch(...args: Parameters<typeof dispatchWebhookEvent>) {
+  await dispatchWebhookEvent(...args);
+  await drainDeferredTasks();
+}
+
 import { signPayload } from "@/lib/webhooks/crypto";
 
 const RUN_ID = `test_${Date.now()}`;
@@ -19,6 +28,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await drainDeferredTasks();
   await prisma.webhookDelivery.deleteMany({ where: { organizationId: org.id } });
   await prisma.webhookEndpoint.deleteMany({ where: { organizationId: org.id } });
   await prisma.organization.deleteMany({ where: { id: org.id } });
@@ -52,7 +62,7 @@ describe("event filtering and delivery", () => {
     });
     await setWebhookEndpointStatus(org.id, disabled.endpoint.id, "DISABLED");
 
-    await dispatchWebhookEvent(org.id, "agent.paused", { agentId: "a1", agentName: "Test Agent" });
+    await dispatch(org.id, "agent.paused", { agentId: "a1", agentName: "Test Agent" });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
@@ -72,7 +82,7 @@ describe("event filtering and delivery", () => {
       subscribedEvents: ["cost.anomaly.detected"],
     });
 
-    await dispatchWebhookEvent(org.id, "cost.anomaly.detected", { agentId: "a1", apiKey: "should-not-appear" });
+    await dispatch(org.id, "cost.anomaly.detected", { agentId: "a1", apiKey: "should-not-appear" });
 
     const [, init] = fetchMock.mock.calls.find(
       (call) => call[0] === "https://8.8.8.8/hook-redact"
@@ -90,7 +100,7 @@ describe("event filtering and delivery", () => {
     });
     fetchMock.mockResolvedValue(new Response("error", { status: 500 }));
 
-    await dispatchWebhookEvent(org.id, "security.alert.created", { id: "alert-1" });
+    await dispatch(org.id, "security.alert.created", { id: "alert-1" });
 
     const serverErrorDeliveries = await prisma.webhookDelivery.findMany({
       where: { webhookEndpointId: serverError.endpoint.id },
@@ -106,7 +116,7 @@ describe("event filtering and delivery", () => {
     });
     fetchMock.mockResolvedValue(new Response("bad request", { status: 400 }));
 
-    await dispatchWebhookEvent(org.id, "security.alert.created", { id: "alert-2" });
+    await dispatch(org.id, "security.alert.created", { id: "alert-2" });
 
     const clientErrorDeliveries = await prisma.webhookDelivery.findMany({
       where: { webhookEndpointId: clientError.endpoint.id },

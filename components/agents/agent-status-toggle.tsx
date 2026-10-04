@@ -53,7 +53,7 @@ export function AgentStatusToggle({ slug, status }: { slug: string; status: Agen
         {status !== "STOPPED" && (
           <ConfirmDialog
             title="Stop agent"
-            description="This records a kill-switch intent in Aegis. Aegis has no enforcement connector for this connection today, so this does not itself halt the agent — see the notice after confirming."
+            description="Aegis will refuse (BLOCK) every authorization request this agent makes until it's resumed. Aegis has no enforcement connector for this connection, so it can't halt the agent's process or stop actions it takes without asking Aegis first — see the notice after confirming."
             confirmLabel="Stop agent"
             onConfirm={() => setStatus("STOPPED")}
             trigger={

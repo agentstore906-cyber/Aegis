@@ -29,7 +29,7 @@ export const ACTION_PATTERN = /^[a-z0-9_]+(\.[a-z0-9_]+)*(\.\*)?$/;
 
 /** Whitelisted condition field paths — must mirror lib/policies/conditions.ts's resolver. */
 const FIELD_PATTERN =
-  /^(context\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+){0,4}|action|resource|environment|tool|riskLevel|agentId)$/;
+  /^(context\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+){0,4}|action|resource|environment|tool|riskLevel|agentId|destination|service|dataSensitivity|recordCount|byteCount|data\.(PUBLIC|INTERNAL|CONFIDENTIAL|PII|FINANCIAL|HEALTH|CREDENTIALS))$/;
 
 export const actionSchema = z
   .string()
@@ -46,7 +46,7 @@ export const conditionSchema = z
       .trim()
       .min(1, "Field is required")
       .max(100)
-      .regex(FIELD_PATTERN, 'Use "context.<name>" or one of action/resource/environment/tool/riskLevel'),
+      .regex(FIELD_PATTERN, 'Use "context.<name>", "data.<CLASS>", or one of action/resource/environment/tool/riskLevel/destination/service/dataSensitivity/recordCount/byteCount'),
     operator: z.enum(CONDITION_OPERATORS),
     value: z.union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number()]))]),
   })

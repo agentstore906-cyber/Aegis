@@ -18,10 +18,17 @@ export class NullEnforcementConnector implements EnforcementConnector {
   readonly kind = "null";
 
   async control(_agentId: string, action: AgentControlAction): Promise<EnforcementOutcome> {
+    // What Aegis itself does is real and stated precisely (P0 §1: /evaluate
+    // refuses a paused/stopped agent); what it can't do — reach into the
+    // external process — stays explicit, and `enforced` stays false.
+    const aegisSide =
+      action === "resume"
+        ? "Aegis has resumed normal policy evaluation for its authorization requests."
+        : "Aegis now returns BLOCK for every authorization request (POST /api/v1/evaluate) this agent makes, so an integration that checks with Aegis before acting will stop.";
     return {
       enforced: false,
       mechanism: null,
-      detail: `Aegis marked this agent as ${ACTION_VERB[action]}, but no enforcement connector is configured for this connection — Aegis cannot guarantee the external agent honors this state.`,
+      detail: `Aegis marked this agent as ${ACTION_VERB[action]}. ${aegisSide} No enforcement connector is configured for this connection, so Aegis cannot halt the external process itself or stop actions it takes without asking — those are only detected after the fact if reported.`,
     };
   }
 }

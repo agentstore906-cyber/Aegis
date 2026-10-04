@@ -1,13 +1,19 @@
 import "server-only";
 
-import type { ConnectorType, Prisma } from "@prisma/client";
+import type { ConnectorType, Environment, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { ensureUniqueAgentSlug } from "@/lib/agents/queries";
 import { getConnector } from "@/lib/connectors/registry";
-import { encryptCredential, decryptCredential, maskCredential } from "@/lib/connectors/crypto";
+import {
+  CredentialDecryptionError,
+  decryptCredentialWithKeyInfo,
+  encryptCredential,
+  maskCredential,
+} from "@/lib/connectors/crypto";
 import type { ConnectorCapabilities, DiscoveredAgent } from "@/lib/connectors/types";
 import { canCreateAgent, canCreateApiKey } from "@/lib/billing/entitlements";
+import { AgentLimitReachedError, checkAgentLimitLocked } from "@/lib/agents/creation-guard";
 import * as apiKeyRepo from "@/lib/api-keys/repository";
 import { recordAuditEvent } from "@/lib/audit/service";
 import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
@@ -72,6 +78,7 @@ export type ConnectProviderAgentInput = {
   credential?: string;
   selectedExternalId?: string;
   agentName?: string;
+  environment?: Environment;
 };
 
 export type ConnectProviderAgentResult =
@@ -88,7 +95,9 @@ export type ConnectProviderAgentResult =
 
 export async function connectProviderAgent(input: ConnectProviderAgentInput): Promise<ConnectProviderAgentResult> {
   const connector = getConnector(input.connectorType);
-  // Independent reads — run together rather than as two sequential round trips.
+  // Early, friendly check before any provider round trip. Not the
+  // authoritative one — that's re-done under a lock inside the creating
+  // transaction below (lib/agents/creation-guard.ts).
   const [agentCount, organization] = await Promise.all([
     prisma.agent.count({ where: { organizationId: input.organizationId } }),
     prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId }, select: { plan: true } }),
@@ -144,85 +153,101 @@ export async function connectProviderAgent(input: ConnectProviderAgentInput): Pr
 
   const slug = await ensureUniqueAgentSlug(input.organizationId, finalName);
 
-  const result = await prisma.$transaction(async (tx) => {
-    const agent = await tx.agent.create({
-      data: {
-        organizationId: input.organizationId,
-        name: finalName,
-        slug,
-        owner: input.ownerLabel,
-        modelProvider: connector.displayName,
-        modelName: resolvedModel ?? "unknown",
-        status: "ACTIVE",
-      },
-    });
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const lockedEntitlement = await checkAgentLimitLocked(tx, input.organizationId);
+      if (!lockedEntitlement.allowed) throw new AgentLimitReachedError(lockedEntitlement.reason);
 
-    let apiKeyId: string | null = null;
-    let apiKeyRaw: string | undefined;
-    let apiKeyLimitReached = false;
+      const agent = await tx.agent.create({
+        data: {
+          organizationId: input.organizationId,
+          name: finalName,
+          slug,
+          owner: input.ownerLabel,
+          environment: input.environment ?? "PRODUCTION",
+          modelProvider: connector.displayName,
+          modelName: resolvedModel ?? "unknown",
+          status: "ACTIVE",
+        },
+      });
 
-    if (input.connectorType === "CUSTOM_SDK") {
-      const activeKeyCount = await tx.apiKey.count({ where: { organizationId: input.organizationId, revokedAt: null } });
-      const keyEntitlement = canCreateApiKey(organization.plan, activeKeyCount);
-      if (keyEntitlement.allowed) {
-        const created = await apiKeyRepo.createApiKey(
-          input.organizationId,
-          input.userId,
-          { name: `Agent SDK — ${finalName}`, environment: "LIVE" },
-          tx
-        );
-        apiKeyId = created.apiKey.id;
-        apiKeyRaw = created.raw;
-      } else {
-        apiKeyLimitReached = true;
+      let apiKeyId: string | null = null;
+      let apiKeyRaw: string | undefined;
+      let apiKeyLimitReached = false;
+
+      if (input.connectorType === "CUSTOM_SDK") {
+        const activeKeyCount = await tx.apiKey.count({ where: { organizationId: input.organizationId, revokedAt: null } });
+        const keyEntitlement = canCreateApiKey(organization.plan, activeKeyCount);
+        if (keyEntitlement.allowed) {
+          const created = await apiKeyRepo.createApiKey(
+            input.organizationId,
+            input.userId,
+            // Bound to this agent (P0 §7): the auto-provisioned SDK key can only act as it.
+            { name: `Agent SDK — ${finalName}`, environment: input.environment === undefined || input.environment === "PRODUCTION" ? "LIVE" : "TEST", agentId: agent.id },
+            tx
+          );
+          apiKeyId = created.apiKey.id;
+          apiKeyRaw = created.raw;
+        } else {
+          apiKeyLimitReached = true;
+        }
       }
-    }
 
-    const connectionData: {
-      credentialCiphertext?: string;
-      credentialIv?: string;
-      credentialAuthTag?: string;
-      externalAccountLabel?: string;
-    } = {};
-    if (credential) {
-      const encrypted = encryptCredential(credential);
-      connectionData.credentialCiphertext = encrypted.ciphertext;
-      connectionData.credentialIv = encrypted.iv;
-      connectionData.credentialAuthTag = encrypted.authTag;
-      connectionData.externalAccountLabel = maskCredential(credential);
-    } else {
-      connectionData.externalAccountLabel = accountLabel;
-    }
+      const connectionData: {
+        credentialCiphertext?: string;
+        credentialIv?: string;
+        credentialAuthTag?: string;
+        credentialKeyId?: string | null;
+        externalAccountLabel?: string;
+      } = {};
+      if (credential) {
+        const encrypted = encryptCredential(credential);
+        connectionData.credentialCiphertext = encrypted.ciphertext;
+        connectionData.credentialIv = encrypted.iv;
+        connectionData.credentialAuthTag = encrypted.authTag;
+        connectionData.credentialKeyId = encrypted.keyId;
+        connectionData.externalAccountLabel = maskCredential(credential);
+      } else {
+        connectionData.externalAccountLabel = accountLabel;
+      }
 
-    await tx.agentConnection.create({
-      data: {
+      await tx.agentConnection.create({
+        data: {
+          organizationId: input.organizationId,
+          agentId: agent.id,
+          connectorType: input.connectorType,
+          // An Aegis-key (SDK) connection is NOT connected when its credential is issued: it is waiting until a
+          // request authenticated with that credential actually reaches Aegis (lib/agents/handshake.ts).
+          // A provider connection is connected in the only sense that is true at this point: the provider verified it.
+          status: input.connectorType === "CUSTOM_SDK" ? "CONNECTING" : "CONNECTED",
+          externalAgentId,
+          apiKeyId,
+          capabilities: connector.capabilities as unknown as Prisma.InputJsonValue,
+          lastVerifiedAt: credential ? new Date() : null,
+          createdById: input.userId,
+          ...connectionData,
+        },
+      });
+
+      await recordAuditEvent(tx, {
         organizationId: input.organizationId,
+        actorType: "USER",
+        actorUserId: input.userId,
         agentId: agent.id,
-        connectorType: input.connectorType,
-        status: "CONNECTED",
-        externalAgentId,
-        apiKeyId,
-        capabilities: connector.capabilities as unknown as Prisma.InputJsonValue,
-        lastVerifiedAt: credential ? new Date() : null,
-        createdById: input.userId,
-        ...connectionData,
-      },
-    });
+        eventType: AUDIT_EVENT_TYPES.AGENT_CONNECTED,
+        entityType: "Agent",
+        entityId: agent.id,
+        action: "agent.connect",
+        metadata: { connectorType: input.connectorType, externalAgentId: externalAgentId ?? undefined },
+      });
 
-    await recordAuditEvent(tx, {
-      organizationId: input.organizationId,
-      actorType: "USER",
-      actorUserId: input.userId,
-      agentId: agent.id,
-      eventType: AUDIT_EVENT_TYPES.AGENT_CONNECTED,
-      entityType: "Agent",
-      entityId: agent.id,
-      action: "agent.connect",
-      metadata: { connectorType: input.connectorType, externalAgentId: externalAgentId ?? undefined },
+      return { agent, apiKeyRaw, apiKeyLimitReached };
     });
-
-    return { agent, apiKeyRaw, apiKeyLimitReached };
-  });
+  } catch (error) {
+    if (error instanceof AgentLimitReachedError) return { ok: false, error: error.message };
+    throw error;
+  }
 
   await dispatchWebhookEvent(input.organizationId, "agent.connected", {
     agentId: result.agent.id,
@@ -255,13 +280,48 @@ async function loadConnection(organizationId: string, agentSlug: string) {
   return { agent, connection: agent.connection };
 }
 
-function decryptStoredCredential(connection: { credentialCiphertext: string | null; credentialIv: string | null; credentialAuthTag: string | null }) {
+type StoredCredentialFields = {
+  id: string;
+  credentialCiphertext: string | null;
+  credentialIv: string | null;
+  credentialAuthTag: string | null;
+  credentialKeyId: string | null;
+};
+
+/**
+ * Decrypts a stored provider credential with whichever configured key wrote
+ * it (lib/connectors/crypto.ts), and — if that wasn't the current primary
+ * key, or the row predates key versioning — re-encrypts it with the primary
+ * key on the spot, so a key rotation converges row by row as connections are
+ * used. The re-encryption only replaces the row if it still holds exactly
+ * the ciphertext we decrypted (no clobbering a concurrent reconnect).
+ */
+async function decryptStoredCredential(connection: StoredCredentialFields): Promise<string | undefined> {
   if (!connection.credentialCiphertext || !connection.credentialIv || !connection.credentialAuthTag) return undefined;
-  return decryptCredential({
+  const decrypted = decryptCredentialWithKeyInfo({
     ciphertext: connection.credentialCiphertext,
     iv: connection.credentialIv,
     authTag: connection.credentialAuthTag,
+    keyId: connection.credentialKeyId,
   });
+
+  if (decrypted.needsReencryption) {
+    const reencrypted = encryptCredential(decrypted.plaintext);
+    await prisma.agentConnection
+      .updateMany({
+        where: { id: connection.id, credentialCiphertext: connection.credentialCiphertext },
+        data: {
+          credentialCiphertext: reencrypted.ciphertext,
+          credentialIv: reencrypted.iv,
+          credentialAuthTag: reencrypted.authTag,
+          credentialKeyId: reencrypted.keyId,
+        },
+      })
+      .catch((error: unknown) => {
+        console.error(JSON.stringify({ msg: "credential_reencrypt_failed", connectionId: connection.id, error: String(error) }));
+      });
+  }
+  return decrypted.plaintext;
 }
 
 export type CheckHealthResult = { status: string; ok: boolean; error?: string };
@@ -273,7 +333,19 @@ export async function checkConnectionHealth(organizationId: string, agentSlug: s
   }
 
   const connector = getConnector(connection.connectorType);
-  const credential = decryptStoredCredential(connection);
+  let credential: string | undefined;
+  try {
+    credential = await decryptStoredCredential(connection);
+  } catch (error) {
+    if (!(error instanceof CredentialDecryptionError)) throw error;
+    // Unreadable with every configured key — say so precisely instead of
+    // crashing, and require a reconnect (never a silent "healthy").
+    await prisma.agentConnection.update({
+      where: { id: connection.id },
+      data: { status: "RECONNECT_REQUIRED", lastHealthCheckAt: new Date(), lastHealthError: error.message },
+    });
+    return { status: "RECONNECT_REQUIRED", ok: false, error: error.message };
+  }
   const result = await connector.healthCheck({
     organizationId,
     credential,
@@ -334,6 +406,7 @@ export async function reconnectAgentConnection(
           credentialCiphertext: encrypted.ciphertext,
           credentialIv: encrypted.iv,
           credentialAuthTag: encrypted.authTag,
+          credentialKeyId: encrypted.keyId,
           externalAccountLabel: maskCredential(trimmed),
           lastVerifiedAt: new Date(),
           lastHealthError: null,
@@ -370,14 +443,20 @@ export async function reconnectAgentConnection(
     if (connection.apiKeyId) {
       await apiKeyRepo.revokeApiKey(organizationId, connection.apiKeyId, tx);
     }
-    const created = await apiKeyRepo.createApiKey(organizationId, userId, { name: `Agent SDK — ${agent.name}`, environment: "LIVE" }, tx);
+    const created = await apiKeyRepo.createApiKey(
+      organizationId,
+      userId,
+      { name: `Agent SDK — ${agent.name}`, environment: "LIVE", agentId: agent.id },
+      tx
+    );
 
     await tx.agentConnection.update({
       where: { id: connection.id },
       data: {
-        status: "CONNECTED",
+        // The new credential has not been used yet, so this is waiting again until it makes contact.
+        // History (firstHandshakeAt, activity, trust, baselines) is untouched: the identity is preserved.
+        status: "CONNECTING",
         apiKeyId: created.apiKey.id,
-        lastVerifiedAt: new Date(),
         lastHealthError: null,
         disconnectedAt: null,
       },
@@ -420,6 +499,7 @@ export async function disconnectAgentConnection(organizationId: string, userId: 
         credentialCiphertext: null,
         credentialIv: null,
         credentialAuthTag: null,
+        credentialKeyId: null,
       },
     });
     await recordAuditEvent(tx, {

@@ -2,12 +2,18 @@ import { randomUUID } from "node:crypto";
 
 import { HttpClient } from "./http.js";
 import { AegisTimeoutError, AegisValidationError } from "./errors.js";
+import { guard } from "./guard.js";
 import type {
   AegisConfig,
   ApprovalStatusResult,
   AuthorizationResult,
   AuthorizeInput,
+  AlertResult,
+  AllowResult,
+  GuardInput,
   ConvenienceEventInput,
+  HandshakeInput,
+  HandshakeResult,
   RegisterAgentInput,
   RegisterAgentResult,
   TrackEventInput,
@@ -24,6 +30,10 @@ const POLL_BACKOFF_FACTOR = 1.5;
 
 function generateTraceId(): string {
   return `trace_${randomUUID()}`;
+}
+
+function generateIdempotencyKey(): string {
+  return `idem_${randomUUID()}`;
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -69,9 +79,20 @@ export class Aegis {
     );
   }
 
-  /** Reports an action your agent already took. Does not ask for authorization — see `authorize()` for that. */
+  /**
+   * Reports an action your agent already took. Does not ask for
+   * authorization — see `authorize()` for that. Sends an Idempotency-Key
+   * (yours, or one generated per call) that is reused across retries, so a
+   * retry never records the event twice.
+   */
   async track(input: TrackEventInput): Promise<TrackEventResult> {
-    return this.http.request<TrackEventResult>({ method: "POST", path: "/api/v1/events", body: input });
+    const { idempotencyKey, ...body } = input;
+    return this.http.request<TrackEventResult>({
+      method: "POST",
+      path: "/api/v1/events",
+      body,
+      idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
+    });
   }
 
   // Convenience wrappers around track() (0.4.0) — each fills in the
@@ -125,7 +146,13 @@ export class Aegis {
     return this.track({ ...input, eventType: "SYSTEM", action: input.action ?? "permission.changed" });
   }
 
-  /** Asks Aegis whether your agent may perform an action. Auto-generates a traceId if you don't supply one. */
+  /**
+   * Asks Aegis whether your agent may perform an action. Auto-generates a
+   * traceId if you don't supply one, and an Idempotency-Key per call (reused
+   * across this call's retries) so a retry can never create a duplicate
+   * evaluation or approval request. Pass `approvalRequestId` to use an
+   * APPROVED approval for its single execution.
+   */
   async authorize(input: AuthorizeInput): Promise<AuthorizationResult> {
     const { idempotencyKey, ...rest } = input;
     const body = { ...rest, traceId: input.traceId ?? generateTraceId() };
@@ -133,7 +160,7 @@ export class Aegis {
       method: "POST",
       path: "/api/v1/evaluate",
       body,
-      idempotencyKey,
+      idempotencyKey: idempotencyKey ?? generateIdempotencyKey(),
     });
   }
 
@@ -175,6 +202,24 @@ export class Aegis {
       await delay(Math.min(intervalMs, remainingMs), input.signal);
       intervalMs = Math.min(intervalMs * POLL_BACKOFF_FACTOR, MAX_POLL_INTERVAL_MS);
     }
+  }
+
+  /**
+   * In-process enforcement for one tool call (0.7.0): authorize, run `fn` only on an allowing decision,
+   * and report the outcome under that decision. Fails CLOSED by default. It guards the calls you route
+   * through it — it cannot stop code that calls the tool directly. See the README's "guard()" section.
+   */
+  async guard<T>(input: GuardInput, fn: (decision: AllowResult | AlertResult | null) => Promise<T> | T): Promise<T> {
+    return guard(this, input, fn);
+  }
+
+  /**
+   * Tells Aegis "this agent is up and reachable with this credential" (0.8.0). Aegis marks the connection
+   * established only because this authenticated request actually arrived; it is idempotent, so calling it on every
+   * start is safe. Needs a key bound to one agent (the one the dashboard issued when you connected the agent).
+   */
+  async handshake(input: HandshakeInput = {}): Promise<HandshakeResult> {
+    return this.http.request<HandshakeResult>({ method: "POST", path: "/api/v1/connect/handshake", body: input });
   }
 
   /** Lightweight auto-provisioning so a new agent doesn't need a dashboard visit before its first event/authorize call. */

@@ -2,6 +2,13 @@ import { z } from "zod";
 import { AGENT_ENVIRONMENTS, AGENT_RISK_LEVELS } from "@/lib/validation/agent";
 import { actionSchema } from "@/lib/validation/policy";
 import { parseSafeJsonContext } from "@/lib/policies/safe-context";
+import {
+  CLIENT_EVENT_ID_PATTERN,
+  MAX_DATA_CLASSES,
+  normalizeDataClasses,
+  normalizeDestination,
+  normalizeKey,
+} from "@/lib/telemetry/normalize";
 
 /**
  * Validation for the public API (app/api/v1/*). Deliberately separate
@@ -66,6 +73,105 @@ function environmentSchema() {
     });
 }
 
+// ---------------------------------------------------------------------------
+// P1 telemetry fields (docs/AEGIS_P1_DATA_FOUNDATION.md). All optional.
+// Normalized here, at the boundary, so everything downstream sees exactly one
+// representation per concept; anything that can't be normalized is a 400,
+// never silently dropped or guessed.
+// ---------------------------------------------------------------------------
+
+const OCCURRED_AT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const OCCURRED_AT_MAX_SKEW_MS = 5 * 60 * 1000;
+const MAX_BYTE_COUNT = 2_147_483_647; // Postgres INTEGER; documented limit
+
+const clientEventIdSchema = z
+  .string()
+  .trim()
+  .regex(CLIENT_EVENT_ID_PATTERN, "`clientEventId` must be 1-120 characters of letters, digits, `.`, `_`, `:` or `-`.");
+
+const aegisIdSchema = z.string().trim().min(1).max(64);
+
+const serviceSchema = z
+  .string()
+  .max(80)
+  .transform((raw, ctx) => {
+    const key = normalizeKey(raw);
+    if (!key) {
+      ctx.addIssue({ code: "custom", message: "`service` must contain letters or digits." });
+      return z.NEVER;
+    }
+    return key;
+  });
+
+const destinationSchema = z
+  .string()
+  .max(2048)
+  .transform((raw, ctx) => {
+    const result = normalizeDestination(raw);
+    if (!result.ok) {
+      ctx.addIssue({ code: "custom", message: result.error });
+      return z.NEVER;
+    }
+    return result.value;
+  });
+
+const dataClassesSchema = z
+  .array(z.string().max(40))
+  .max(MAX_DATA_CLASSES)
+  .transform((raw, ctx) => {
+    const result = normalizeDataClasses(raw);
+    if (!result.ok) {
+      ctx.addIssue({ code: "custom", message: result.error });
+      return z.NEVER;
+    }
+    return result.value;
+  });
+
+const occurredAtSchema = z
+  .string()
+  .datetime({ offset: true, message: "`occurredAt` must be an ISO-8601 timestamp." })
+  .transform((raw, ctx) => {
+    const date = new Date(raw);
+    const now = Date.now();
+    if (date.getTime() > now + OCCURRED_AT_MAX_SKEW_MS) {
+      ctx.addIssue({ code: "custom", message: "`occurredAt` is in the future." });
+      return z.NEVER;
+    }
+    if (date.getTime() < now - OCCURRED_AT_MAX_AGE_MS) {
+      ctx.addIssue({ code: "custom", message: "`occurredAt` is more than 30 days in the past." });
+      return z.NEVER;
+    }
+    return date;
+  });
+
+/** Fields shared by /events and /evaluate. The raw `endUserId` is pseudonymized before storage — never persisted. */
+const telemetryContextFields = {
+  service: serviceSchema.optional(),
+  destination: destinationSchema.optional(),
+  endUserId: z.string().trim().min(1).max(256).optional(),
+  dataClasses: dataClassesSchema.optional(),
+  dataSensitivity: z.enum(AGENT_RISK_LEVELS).optional(),
+  recordCount: z.number().int().min(0).max(1_000_000_000).optional(),
+  byteCount: z.number().int().min(0).max(MAX_BYTE_COUNT).optional(),
+  parentEventId: aegisIdSchema.optional(),
+  parentClientEventId: clientEventIdSchema.optional(),
+};
+
+/** The telemetry a caller may describe an action with — the same normalization the API boundary applies (also used by the policy tester and simulation). */
+export const telemetryInputSchema = z.object({
+  service: telemetryContextFields.service,
+  destination: telemetryContextFields.destination,
+  dataClasses: telemetryContextFields.dataClasses,
+  dataSensitivity: telemetryContextFields.dataSensitivity,
+  recordCount: telemetryContextFields.recordCount,
+  byteCount: telemetryContextFields.byteCount,
+});
+
+function oneParentReference(value: { parentEventId?: string; parentClientEventId?: string }) {
+  return !(value.parentEventId && value.parentClientEventId);
+}
+const ONE_PARENT_MESSAGE = "Send either `parentEventId` or `parentClientEventId`, not both.";
+
 export const eventIngestSchema = z.object({
   agent: agentSlugSchema,
   eventType: z.enum(API_EVENT_TYPES),
@@ -86,7 +192,12 @@ export const eventIngestSchema = z.object({
   taskId: z.string().trim().max(120).optional(),
   taskType: z.string().trim().max(60).optional(),
   metadata: safeJsonObjectSchema(),
-});
+  // P1
+  clientEventId: clientEventIdSchema.optional(),
+  evaluationId: aegisIdSchema.optional(),
+  occurredAt: occurredAtSchema.optional(),
+  ...telemetryContextFields,
+}).refine(oneParentReference, { message: ONE_PARENT_MESSAGE });
 
 export type EventIngestInput = z.infer<typeof eventIngestSchema>;
 
@@ -99,7 +210,12 @@ export const evaluateRequestSchema = z.object({
   riskLevel: z.enum(AGENT_RISK_LEVELS).optional(),
   context: safeJsonObjectSchema(),
   traceId: traceIdSchema,
-});
+  // An APPROVED approval to consume for this one execution — see
+  // lib/approvals/binding.ts. Must be for this exact request.
+  approvalRequestId: z.string().trim().min(1).max(64).optional(),
+  // P1
+  ...telemetryContextFields,
+}).refine(oneParentReference, { message: ONE_PARENT_MESSAGE });
 
 export type EvaluateRequestInput = z.infer<typeof evaluateRequestSchema>;
 

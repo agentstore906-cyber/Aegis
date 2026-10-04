@@ -36,7 +36,7 @@ deployment-time configuration this repo can't do on its own behalf.
       centrally in `withApiAuth` (`lib/api/handler.ts`), never logged raw.
 - [x] Webhooks verified — inbound Paddle `Paddle-Signature`-verified +
       idempotent + tenant-scoped; outbound HMAC-signed + SSRF-checked. See
-      `app/api/webhooks/paddle/__tests__/route.test.ts` and
+      `app/api/webhooks/paddle/__tests__/route.integration.test.ts` and
       `lib/webhooks/__tests__/`.
 - [x] Rate limiting configured — public API (`lib/api/handler.ts`), lead
       form (`lib/leads/service.ts`), and now sign-in/sign-up. **Known
