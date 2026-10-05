@@ -34,7 +34,7 @@ export const POST = withApiAuth("events.create", "events:write", async (request,
   if (agent.connection?.status === "DISCONNECTED") {
     throw new ApiError(
       "AGENT_CONNECTION_DISCONNECTED",
-      `Agent \`${parsed.data.agent}\` has been disconnected. Reconnect it in Aegis before sending more activity.`,
+      `Agent \`${agent.slug}\` has been disconnected. Reconnect it in Aegis before sending more activity.`,
       409
     );
   }

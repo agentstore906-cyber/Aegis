@@ -51,7 +51,11 @@ export type AegisConfig = {
 };
 
 export type TrackEventInput = ActionContextFields & {
-  agent: string;
+  /**
+   * Optional with a credential Aegis issued for this agent: the credential already identifies the agent, so you
+   * never need its identifier. If you pass it, it must be that agent. Organization-wide keys must pass it.
+   */
+  agent?: string;
   eventType: EventType;
   action: string;
   resource?: string;
@@ -116,7 +120,8 @@ export type TrackEventResult = {
 export type ConvenienceEventInput = Omit<TrackEventInput, "eventType" | "action"> & { action?: string };
 
 export type AuthorizeInput = ActionContextFields & {
-  agent: string;
+  /** Optional with an agent-bound credential (see TrackEventInput.agent). */
+  agent?: string;
   action: string;
   resource?: string;
   environment?: Environment;

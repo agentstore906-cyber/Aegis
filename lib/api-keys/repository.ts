@@ -24,6 +24,18 @@ export async function listApiKeys(organizationId: string) {
   });
 }
 
+/**
+ * Active keys that count against the plan's API-key limit.
+ *
+ * A credential that Connect Agent issued for an agent (the one an AgentConnection points at) IS that agent's
+ * identity: it is limited by the plan's agent limit, not by the developer-key limit. Counting it here made the
+ * Nth agent on every limited plan (Free: 3 agents but 2 keys) impossible to connect — the agent was created
+ * with no credential and could never authenticate.
+ */
+export async function countPlanLimitedApiKeys(organizationId: string, client: PrismaOrTx = prisma): Promise<number> {
+  return client.apiKey.count({ where: { organizationId, revokedAt: null, agentConnections: { none: {} } } });
+}
+
 export async function getApiKey(organizationId: string, id: string) {
   return prisma.apiKey.findFirst({ where: { id, organizationId } });
 }

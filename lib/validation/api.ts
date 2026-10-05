@@ -35,6 +35,8 @@ export const API_EVENT_TYPES = [
 // from SUCCESS/FAILURE, which describe whether the action itself errored.
 export const API_EVENT_STATUSES = ["SUCCESS", "FAILURE", "BLOCKED", "WARNING"] as const;
 
+// Optional on the wire: a key bound to one agent already says WHICH agent is calling, so the server derives it
+// (lib/api/agent-access.ts). When given, it is only a claim and must match the key.
 const agentSlugSchema = z.string().trim().min(1, "`agent` is required").max(80);
 const traceIdSchema = z.string().trim().min(1).max(120).optional();
 
@@ -173,7 +175,7 @@ function oneParentReference(value: { parentEventId?: string; parentClientEventId
 const ONE_PARENT_MESSAGE = "Send either `parentEventId` or `parentClientEventId`, not both.";
 
 export const eventIngestSchema = z.object({
-  agent: agentSlugSchema,
+  agent: agentSlugSchema.optional(),
   eventType: z.enum(API_EVENT_TYPES),
   action: actionSchema,
   resource: z.string().trim().max(120).optional(),
@@ -202,7 +204,7 @@ export const eventIngestSchema = z.object({
 export type EventIngestInput = z.infer<typeof eventIngestSchema>;
 
 export const evaluateRequestSchema = z.object({
-  agent: agentSlugSchema,
+  agent: agentSlugSchema.optional(),
   action: actionSchema,
   resource: z.string().trim().max(120).optional(),
   environment: environmentSchema(),

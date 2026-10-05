@@ -16,7 +16,7 @@ export function AgentDetected({ snapshot }: { snapshot: ConnectionSnapshotJson }
   const awaitingActivity = !snapshot.view.steps.find((s) => s.key === "activity")?.done;
   return (
     <div className="aegis-enter">
-      <p className="section-label">Agent detected</p>
+      <p className="section-label">Agent connected</p>
       <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{snapshot.agent.name}</h2>
       <p className="mt-1 text-sm text-muted-foreground">{ENVIRONMENT[snapshot.agent.environment] ?? snapshot.agent.environment}</p>
 
@@ -34,7 +34,7 @@ export function AgentDetected({ snapshot }: { snapshot: ConnectionSnapshotJson }
       <AgentProtectionStatus view={snapshot.view} className="mt-6" />
 
       <div className="mt-6">
-        <ButtonLink href={`/agents/${snapshot.agent.slug}`}>Enter Aegis</ButtonLink>
+        <ButtonLink href={`/agents/${snapshot.agent.slug}`}>View agent</ButtonLink>
       </div>
     </div>
   );

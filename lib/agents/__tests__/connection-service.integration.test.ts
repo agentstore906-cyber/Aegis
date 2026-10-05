@@ -164,6 +164,27 @@ describe("connectProviderAgent — CUSTOM_SDK", () => {
   });
 });
 
+describe("connectProviderAgent — CUSTOM_SDK credentials vs. the API key limit", () => {
+  it("credentials issued by Connect Agent do not count against the developer API key limit (every agent the plan allows is connectable)", async () => {
+    const free = await prisma.organization.create({ data: { name: "Key Exempt Org", slug: `${RUN_ID}-key-exempt`, plan: "free" } });
+    try {
+      const results = [];
+      for (const name of ["Exempt One", "Exempt Two", "Exempt Three"]) {
+        results.push(await connectProviderAgent({ organizationId: free.id, userId: user.id, ownerLabel: "Tester", connectorType: "CUSTOM_SDK", agentName: name }));
+      }
+      // Free allows 3 agents but only 2 API keys: each agent's own credential must not be what runs out.
+      expect(results.map((r) => r.ok && Boolean(r.apiKeyRaw))).toEqual([true, true, true]);
+      expect(results.some((r) => r.ok && r.apiKeyLimitReached)).toBe(false);
+    } finally {
+      await prisma.auditEvent.deleteMany({ where: { organizationId: free.id } });
+      await prisma.agentConnection.deleteMany({ where: { organizationId: free.id } });
+      await prisma.apiKey.deleteMany({ where: { organizationId: free.id } });
+      await prisma.agent.deleteMany({ where: { organizationId: free.id } });
+      await prisma.organization.delete({ where: { id: free.id } });
+    }
+  });
+});
+
 describe("connectProviderAgent — OPENAI", () => {
   it("auto-connects when discovery finds exactly one assistant, using its real name/model", async () => {
     fetchMock.mockImplementation(async (url: string) => {

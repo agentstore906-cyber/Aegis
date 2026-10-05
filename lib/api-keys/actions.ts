@@ -26,7 +26,7 @@ export async function createApiKeyAction(
     return { error: "You don't have permission to manage API keys." };
   }
 
-  const activeKeyCount = await prisma.apiKey.count({ where: { organizationId: organization.id, revokedAt: null } });
+  const activeKeyCount = await repo.countPlanLimitedApiKeys(organization.id);
   const entitlement = canCreateApiKey(organization.plan, activeKeyCount);
   if (!entitlement.allowed) return { error: entitlement.reason };
 

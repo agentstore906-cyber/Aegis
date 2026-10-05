@@ -26,7 +26,7 @@ export function HandshakeState({ snapshot, problem, checkedAt }: { snapshot: Con
         <Circle className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
       )}
       <div className="min-w-0">
-        <p className="section-label">{connected ? "Connected" : "Waiting for handshake"}</p>
+        <p className="section-label">{connected ? "Connected" : "Waiting for your agent…"}</p>
         <p className="mt-1 text-sm text-foreground">{connected ? "Your agent has made contact." : "Run your agent once to establish the connection."}</p>
         <p className="num mt-1 text-xs text-muted-foreground">
           {problem ? (

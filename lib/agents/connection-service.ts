@@ -177,7 +177,7 @@ export async function connectProviderAgent(input: ConnectProviderAgentInput): Pr
       let apiKeyLimitReached = false;
 
       if (input.connectorType === "CUSTOM_SDK") {
-        const activeKeyCount = await tx.apiKey.count({ where: { organizationId: input.organizationId, revokedAt: null } });
+        const activeKeyCount = await apiKeyRepo.countPlanLimitedApiKeys(input.organizationId, tx);
         const keyEntitlement = canCreateApiKey(organization.plan, activeKeyCount);
         if (keyEntitlement.allowed) {
           const created = await apiKeyRepo.createApiKey(
@@ -434,7 +434,7 @@ export async function reconnectAgentConnection(
   // issuing a fresh Aegis API key and revoking the old one.
   const [organization, activeKeyCount] = await Promise.all([
     prisma.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { plan: true } }),
-    prisma.apiKey.count({ where: { organizationId, revokedAt: null } }),
+    apiKeyRepo.countPlanLimitedApiKeys(organizationId),
   ]);
   const entitlement = canCreateApiKey(organization.plan, activeKeyCount);
   if (!entitlement.allowed) return { ok: false, error: entitlement.reason };

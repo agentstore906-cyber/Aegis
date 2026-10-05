@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { CodeBlock } from "@/components/ui/code-block";
+import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
 
 type Method = "sdk" | "http";
@@ -11,7 +12,7 @@ type Method = "sdk" | "http";
  * The minimum an agent needs to say hello. The credential is referenced as an environment variable — it is not
  * pasted into the snippets — and the base URL is this deployment's own origin, read in the browser.
  */
-export function ConnectionInstructions() {
+export function ConnectionInstructions({ secret }: { secret?: string }) {
   const [origin, setOrigin] = useState("https://YOUR-AEGIS-URL");
   const [method, setMethod] = useState<Method>("sdk");
   useEffect(() => {
@@ -27,9 +28,16 @@ export function ConnectionInstructions() {
     `  baseUrl: "${origin}",`,
     "});",
     "",
-    "// Call once when your agent starts. Safe to repeat.",
+    "// Call once when your agent starts. Safe to repeat. Your key already says which agent this is.",
     "await aegis.handshake();",
   ].join("\n");
+  // "Copy setup": everything the agent needs, ready to paste, with the real credential in it. Built only from what
+  // is already on this screen and copied only when the user asks.
+  const setup = secret
+    ? method === "sdk"
+      ? [`export AEGIS_API_KEY="${secret}"`, "npm install @aegis/agent-sdk", "", sdk].join("\n")
+      : [`export AEGIS_API_KEY="${secret}"`, `curl -X POST ${origin}/api/v1/connect/handshake \\`, '  -H "Authorization: Bearer $AEGIS_API_KEY"'].join("\n")
+    : null;
   const http = [`curl -X POST ${origin}/api/v1/connect/handshake \\`, '  -H "Authorization: Bearer $AEGIS_API_KEY"'].join("\n");
 
   return (
@@ -45,6 +53,13 @@ export function ConnectionInstructions() {
           <span className="num mr-2 text-muted-foreground">3</span>Aegis verifies the connection on this page.
         </li>
       </ol>
+
+      {setup && (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-foreground">Add this to your agent and run it once.</p>
+          <CopyButton value={setup} label="Copy setup" />
+        </div>
+      )}
 
       <div role="tablist" aria-label="Connection method" className="inline-flex rounded-md border border-border p-0.5">
         {(

@@ -52,17 +52,19 @@ const snap = (v = view()): ConnectionSnapshotJson => ({
 describe("<AgentConnectionWizard> first screen", () => {
   const markup = renderToStaticMarkup(<AgentConnectionWizard atLimit={false} />);
 
-  it("states the principle and offers Connect", () => {
-    expect(markup).toContain("Connect your agent");
-    expect(markup).toContain("Your agent stays on your infrastructure.");
-    expect(markup).toContain("Aegis becomes its control layer.");
-    expect(markup).toContain(">Connect<");
+  it("asks only for a friendly name, and offers one clear Connect action", () => {
+    expect(markup).toContain("Connect your AI agent");
+    expect(markup).toContain("Name your agent");
+    expect(markup).toContain("Customer Support Agent");
+    expect(markup).toContain(">Connect agent<");
+    expect(markup).toContain("Advanced options"); // environment is tucked away
   });
-  it("shows no form, no credential, no demo agent and no success state before anything happened", () => {
-    expect(markup).not.toMatch(/<input|<select/);
+  it("exposes no identifiers, no credential, no demo agent and no success state before anything happened", () => {
+    expect(markup).not.toMatch(/agent[_ ]id|organization[_ ]id|handshake|token|payload|base ?url/i);
     expect(markup).not.toMatch(/aegis_(live|test)_/);
-    expect(markup).not.toMatch(/demo agent|create agent|sample/i);
-    expect(markup).not.toMatch(/\bconnected\b|detected|protected/i);
+    expect(markup).not.toMatch(/demo agent|sample/i);
+    expect(markup).not.toMatch(/agent connected|detected|protected/i);
+    expect(markup).toContain("Nothing is connected until your agent actually reaches Aegis.");
   });
   it("blocks at the plan limit", () => {
     expect(renderToStaticMarkup(<AgentConnectionWizard atLimit />)).toMatch(/agent limit/i);
@@ -70,9 +72,9 @@ describe("<AgentConnectionWizard> first screen", () => {
 });
 
 describe("<HandshakeState>", () => {
-  it("is 'Waiting for handshake' until the backend says connected — and says nothing has been received", () => {
+  it("is 'Waiting for your agent…' until the backend says connected — and says nothing has been received", () => {
     const html = renderToStaticMarkup(<HandshakeState snapshot={snap(view({ state: "WAITING" }))} problem={null} checkedAt={new Date("2026-10-03T10:00:00Z")} />);
-    expect(html).toContain("Waiting for handshake");
+    expect(html).toContain("Waiting for your agent…");
     expect(html).toContain("Nothing has been received yet");
     expect(html).not.toMatch(/Your agent has made contact/);
   });

@@ -28,7 +28,7 @@ export const POST = withApiAuth("evaluate.create", "policy:evaluate", async (req
   if (agent.connection?.status === "DISCONNECTED") {
     throw new ApiError(
       "AGENT_CONNECTION_DISCONNECTED",
-      `Agent \`${parsed.data.agent}\` has been disconnected. Reconnect it in Aegis before requesting authorization.`,
+      `Agent \`${agent.slug}\` has been disconnected. Reconnect it in Aegis before requesting authorization.`,
       409
     );
   }
