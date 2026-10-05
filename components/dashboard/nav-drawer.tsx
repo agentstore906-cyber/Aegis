@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { MemberRole } from "@prisma/client";
-import Link from "next/link";
 import { ChevronDown, X } from "lucide-react";
 
 import { Logo } from "@/components/ui/logo";
@@ -16,7 +15,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1
  * closes on Escape / backdrop / navigation, locks page scroll while open, and
  * returns focus to the button that opened it.
  */
-export function NavDrawer({ role, counts, showUpgrade }: { role: MemberRole; counts?: NavCounts; showUpgrade?: boolean }) {
+export function NavDrawer({ role, counts }: { role: MemberRole; counts?: NavCounts }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -102,13 +101,6 @@ export function NavDrawer({ role, counts, showUpgrade }: { role: MemberRole; cou
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-2">
               <NavList role={role} counts={counts} onNavigate={close} />
             </div>
-            {showUpgrade && (
-              <div className="shrink-0 border-t border-border px-3 py-3">
-                <Link href="/upgrade" onClick={close} className="focus-ring block rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground">
-                  Upgrade
-                </Link>
-              </div>
-            )}
           </div>
           <div aria-hidden="true" className="flex-1 bg-black/30" onClick={close} />
         </div>

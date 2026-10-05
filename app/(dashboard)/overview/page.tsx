@@ -9,7 +9,6 @@ import { canManageAgents } from "@/lib/agents/authorization";
 import { getApprovalStats } from "@/lib/approvals/repository";
 import { searchIncidents } from "@/lib/incidents/service";
 import { canViewSecurityAlerts } from "@/lib/security/authorization";
-import { canViewBilling } from "@/lib/billing/authorization";
 import { agentFiltersSchema } from "@/lib/validation/agent";
 import type { ConnectionState } from "@/lib/agents/connection-state";
 
@@ -61,12 +60,6 @@ export default async function HomePage() {
     incidents && incidents.total > 0 ? { href: "/incidents", text: `${plural(incidents.total, "open incident")}` } : null,
   ].filter((x): x is { href: string; text: string } => x !== null);
 
-  const upgrade = canViewBilling(role) ? (
-    <Link href="/upgrade" className="focus-ring rounded-sm text-sm text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline">
-      Upgrade
-    </Link>
-  ) : null;
-
   // ── No agents ──────────────────────────────────────────────────────────────────────────────────
   if (live.length === 0) {
     return (
@@ -86,7 +79,6 @@ export default async function HomePage() {
             Risk scanner
           </ButtonLink>
         </div>
-        {upgrade && <div className="mt-6">{upgrade}</div>}
       </div>
     );
   }
@@ -167,7 +159,6 @@ export default async function HomePage() {
           Risk scanner
         </ButtonLink>
       </div>
-      {upgrade && <div className="mt-6">{upgrade}</div>}
     </div>
   );
 }
