@@ -72,7 +72,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Activity", href: "/activity", icon: Activity, status: "active" },
       { label: "Security alerts", href: "/security", icon: ShieldAlert, status: "active", capability: "view_security", count: "openAlerts", countLabel: "open high or critical alerts" },
       { label: "Control plane", href: "/control", icon: Network, status: "active", capability: "view_security" },
-      { label: "Risk scanner", href: "/risk-scan", icon: ScanSearch, status: "active", capability: "view_security" },
+      { label: "Free AI Agent Risk Scanner", href: "/risk-scan", icon: ScanSearch, status: "active", capability: "view_security" },
       { label: "Costs", href: "/costs", icon: DollarSign, status: "active" },
       { label: "Ask Aegis", href: "/ask", icon: Sparkles, status: "active" },
       { label: "Developers", href: "/developers", icon: Terminal, status: "active" },

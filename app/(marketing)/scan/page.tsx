@@ -27,7 +27,7 @@ export default function ScanPage() {
     <>
       <section className="mx-auto max-w-6xl px-6 pt-14 pb-8 sm:pt-20">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="text-sm font-medium text-muted-foreground">Free AI agent risk scanner</p>
+          <p className="text-sm font-medium text-muted-foreground">Free AI Agent Risk Scanner</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight text-balance text-foreground sm:text-5xl">Scan your AI agent in 60 seconds.</h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-pretty text-muted-foreground">Discover dangerous agent behaviors before they become incidents.</p>
         </div>

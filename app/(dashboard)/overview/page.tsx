@@ -28,7 +28,25 @@ const CONNECTION_TONE: Record<ConnectionState, PanelTone> = {
   REVOKED: "blocked",
 };
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** A separate free product, never an agent and never beside Connect: its own section below the workspace. */
+function FreeScannerSection() {
+  return (
+    <section aria-labelledby="free-scanner-title" className="mt-24 w-full border-t border-border pt-12 text-center">
+      <h2 id="free-scanner-title" className="text-xs font-semibold uppercase tracking-[0.2em] text-foreground">
+        <span className="block">Free AI agent</span>
+        <span className="block">risk scanner</span>
+      </h2>
+      <p className="mt-4 text-muted-foreground">Scan your AI agent in 60 seconds.</p>
+      <div className="mt-6 flex justify-center">
+        <ButtonLink href="/scan?from=dashboard" variant="secondary">
+          Scan Free
+        </ButtonLink>
+      </div>
+    </section>
+  );
+}
+
+const plural =(n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * Home. Deliberately almost empty: the agents the organization really has, and the three things worth doing
@@ -65,7 +83,7 @@ export default async function HomePage() {
     return (
       <div className="aegis-enter mx-auto flex w-full max-w-sm flex-1 flex-col items-center justify-center pb-16 text-center">
         <LogoMark className="size-9" />
-        <h1 className="mt-6 text-3xl font-semibold text-foreground">Control your AI agents.</h1>
+        <h1 className="mt-6 text-3xl font-semibold text-foreground">Connect your agent</h1>
         <p className="mt-2 text-muted-foreground">Your agent stays yours. Aegis becomes its control layer.</p>
         <div className="mt-8 flex w-full flex-col gap-2.5">
           {canManage ? (
@@ -75,10 +93,8 @@ export default async function HomePage() {
           ) : (
             <p className="text-sm text-muted-foreground">Ask an owner or admin to connect an agent.</p>
           )}
-          <ButtonLink href="/scan?from=dashboard" variant="secondary" size="lg">
-            Risk scanner
-          </ButtonLink>
         </div>
+        <FreeScannerSection />
       </div>
     );
   }
@@ -155,10 +171,8 @@ export default async function HomePage() {
             Connect another agent
           </ButtonLink>
         )}
-        <ButtonLink href="/scan?from=dashboard" variant="secondary" size="lg">
-          Risk scanner
-        </ButtonLink>
       </div>
+      <FreeScannerSection />
     </div>
   );
 }
