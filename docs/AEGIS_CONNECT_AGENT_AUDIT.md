@@ -139,3 +139,31 @@ The browser-driven walkthrough of the new wizard against the running server was 
 stopped rather than keep retrying. The wizard is verified by component tests (static render) plus the real HTTP e2e; its client-side
 polling transition (waiting → connected) is covered by `useConnectionStatus`/`connection-state` unit tests and the status
 route integration test, not by a live browser run. Run `/agents/new` by hand once before release.
+
+---
+
+## Update — Connect Agent copy and honesty pass (UX only)
+
+No change to authentication, identity, isolation, ingestion or the policy engine. Changes:
+- **SDK wording.** `npm view @aegis/agent-sdk` returns 404: the package is not published. The Connect screens no longer say `npm install`. The default setup is plain HTTP ("Any language", nothing to install), and "Copy setup" copies a ready-to-run handshake + first-event (`agent.started`) with the real key. The SDK tab is labelled "early access" and says it is not on a public registry. The developer quickstart (`app/(dashboard)/developers/quickstart`) and public docs (`app/(marketing)/docs/sdk`) still say `npm install @aegis/agent-sdk` and were deliberately not touched in this pass — they need the same correction.
+- **Connected screen.** "Agent connected / <name> / Connected just now / View agent". "Monitoring is active." appears only once a real event has arrived; otherwise "Monitoring starts when your agent reports its first event."
+- **Default-deny made understandable.** A read-only `hasAllowRule` on the connection snapshot (permission for the agent, or an active ALLOW policy that applies to it). When false, the connected screen adds "No policy currently allows this agent's actions" + Configure policies; nothing about the decision engine changed.
+- **Copy.** Page: "Connect your AI agent — Connect your agent to Aegis in under 60 seconds." Form: Agent name → Continue → "Your agent is ready". Home: "+ Connect Agent". OpenAI/Anthropic path is "Advanced connection options".
+- **Tests.** 27 component tests (SDK wording, default-deny note, no "Protected"/"blocked" claims) and a 20th real-agent e2e test that runs the page's exact commands (empty-body handshake + `agent.started`) against the real server.
+
+---
+
+## Update — verification pass (2026-10-06)
+
+- **Closed the "unverified" item from §13.** After disconnect, a second still-valid key bound to that agent can read
+  only its own agent's read-only endpoints (history stays readable; nothing is writable), gets 403 for a sibling agent and
+  404 for an agent that exists only in another organization. New e2e test (21 total).
+- **Real e2e re-run** against a freshly built production server (`next start`, local `aegis_test`) with the external
+  agent process: 21/21 pass.
+- `tsc --noEmit` clean; eslint 0 errors (4 pre-existing unused-var warnings); `next build` clean; SDK tests 54/54.
+- **Full suite:** 1347 pass, 3 fail (p2 ×2, p3 cron). They are not caused by Connect Agent: on a *fresh* database p2 is
+  22/22 (twice, with and without my changes) and p3 is 34/34 when run alone; they fail when the two files run together
+  and, for the p3 cron test, when the DB holds many leftover e2e organizations (it evaluates every agent).
+  Run the full suite on a fresh database for a clean result.
+- Still **not** done: a browser-driven walkthrough of the wizard (client-side polling transition is covered by unit
+  tests + the status-route integration test, not a live browser).

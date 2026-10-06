@@ -14,6 +14,12 @@ export type AgentConnectionSnapshot = {
   baseline: { maturity: string; eventsObserved: number; version: number } | null;
   /** Reported events observed so far (the number the baseline will learn from). */
   eventsObserved: number;
+  /**
+   * Whether anything at all would ALLOW this agent's actions: a permission for the agent or an active policy that
+   * applies to it. Aegis denies by default, so a connected agent with none is connected but will be refused whatever
+   * it asks about. Read-only; it changes no decision.
+   */
+  hasAllowRule: boolean;
 };
 
 /**
@@ -35,7 +41,7 @@ export async function getAgentConnectionSnapshot(organizationId: string, slug: s
   if (!agent) return null;
 
   const since = new Date(now.getTime() - 7 * DAY_MS);
-  const [reported, decisions, baseline] = await Promise.all([
+  const [reported, decisions, baseline, allowPermissions, allowPolicies] = await Promise.all([
     prisma.activityEvent.aggregate({
       where: { organizationId, agentId: agent.id, source: "api" },
       _count: { _all: true },
@@ -47,6 +53,8 @@ export async function getAgentConnectionSnapshot(organizationId: string, slug: s
       orderBy: { version: "desc" },
       select: { maturity: true, eventsObserved: true, version: true },
     }),
+    prisma.agentPermission.count({ where: { organizationId, agentId: agent.id, decision: "ALLOW" } }),
+    prisma.policy.count({ where: { organizationId, status: "ACTIVE", decision: "ALLOW", OR: [{ agentId: null }, { agentId: agent.id }] } }),
   ]);
 
   const c = agent.connection;
@@ -75,5 +83,6 @@ export async function getAgentConnectionSnapshot(organizationId: string, slug: s
     view,
     baseline,
     eventsObserved: reported._count._all,
+    hasAllowRule: allowPermissions + allowPolicies > 0,
   };
 }

@@ -27,7 +27,7 @@ export default async function NewAgentPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader title="Connect agent" description="Your agent stays yours. Aegis becomes its control layer." />
+      <PageHeader title="Connect your AI agent" description="Connect your agent to Aegis in under 60 seconds." />
       {plan.agentLimit !== null && (
         <div className="mb-4">
           {atLimit ? (
@@ -48,7 +48,7 @@ export default async function NewAgentPage() {
       {!atLimit && (
         <details className="group mt-6 rounded-lg border border-border bg-surface">
           <summary className="focus-ring cursor-pointer list-none rounded-lg px-5 py-3.5 text-sm font-medium text-foreground">
-            Advanced setup
+            Advanced connection options
             <span className="ml-2 text-xs font-normal text-muted-foreground">Connect with an OpenAI or Anthropic API key</span>
           </summary>
           <div className="border-t border-border p-4">

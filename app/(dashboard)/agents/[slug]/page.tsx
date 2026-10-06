@@ -426,7 +426,7 @@ export default async function AgentDetailPage({
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs text-muted-foreground">Blocked (24h)</dt>
+                      <dt className="text-xs text-muted-foreground">Block decisions (24h)</dt>
                       <dd className={`mt-0.5 font-medium tabular-nums ${riskActivityCounts.blocked > 0 ? "text-danger" : "text-foreground"}`}>
                         {riskActivityCounts.blocked}
                       </dd>

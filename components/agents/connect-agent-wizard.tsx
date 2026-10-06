@@ -272,7 +272,7 @@ export function ConnectAgentWizard({ atLimit }: { atLimit: boolean }) {
                 Your Aegis API key
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Shown once — export it as <code>AEGIS_API_KEY</code> and install the SDK.
+                Shown once — give it to your agent as <code>AEGIS_API_KEY</code>. The SDK is not on a public registry yet; use plain HTTP (see the agent page).
               </p>
               <div className="mt-2">
                 <CodeBlock code={connected.apiKeyRaw} language="text" />
@@ -281,9 +281,7 @@ export function ConnectAgentWizard({ atLimit }: { atLimit: boolean }) {
                 <CodeBlock
                   language="bash"
                   code={[
-                    "npm install @aegis/agent-sdk",
-                    "",
-                    "# in your agent's code",
+                    "# in your agent's environment",
                     `export AEGIS_API_KEY="${connected.apiKeyRaw}"`,
                   ].join("\n")}
                 />

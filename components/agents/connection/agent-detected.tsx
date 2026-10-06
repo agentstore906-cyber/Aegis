@@ -1,37 +1,57 @@
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Info } from "lucide-react";
 
 import { ButtonLink } from "@/components/ui/button";
 
-import { AgentProtectionStatus } from "./agent-protection-status";
 import type { ConnectionSnapshotJson } from "./use-connection-status";
 
-const ENVIRONMENT: Record<string, string> = { PRODUCTION: "Production", STAGING: "Staging", DEVELOPMENT: "Development" };
+/** "just now" / "2 minutes ago" — from the backend's own timestamp, never a guess. */
+export function connectedAgo(iso: string | null, now: Date = new Date()): string {
+  if (!iso) return "Connected";
+  const minutes = Math.floor((now.getTime() - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return "Connected just now";
+  if (minutes === 1) return "Connected 1 minute ago";
+  if (minutes < 60) return `Connected ${minutes} minutes ago`;
+  return "Connected";
+}
 
 /**
- * Shown only after the backend reports a connection. Each check is listed because its evidence exists —
- * a step without evidence is not shown as done, and the first-activity line appears only once an event has arrived.
+ * Shown only after the backend reports a connection. Every line is true because its evidence exists:
+ *   - "Monitoring is active" only once an event has really arrived (a handshake alone proves contact, not monitoring);
+ *   - the policy note only when nothing would allow the agent's actions (Aegis denies by default), so a connected agent
+ *     that is about to be refused does not look like a failed connection.
+ * It never says "protected": Aegis returns decisions for the actions an agent asks about; it cannot stop an agent that doesn't ask.
  */
 export function AgentDetected({ snapshot }: { snapshot: ConnectionSnapshotJson }) {
-  const done = snapshot.view.steps.filter((s) => s.done);
-  const awaitingActivity = !snapshot.view.steps.find((s) => s.key === "activity")?.done;
+  const monitoring = snapshot.view.reportedEventCount > 0;
+  const asksForDecisions = snapshot.view.protection === "ASKS_FOR_DECISIONS";
   return (
     <div className="aegis-enter">
-      <p className="section-label">Agent connected</p>
-      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{snapshot.agent.name}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{ENVIRONMENT[snapshot.agent.environment] ?? snapshot.agent.environment}</p>
+      <div className="flex items-center gap-2.5">
+        <CheckCircle2 className="size-6 text-success" aria-hidden="true" />
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground">Agent connected</h2>
+      </div>
+      <p className="mt-3 text-lg font-medium text-foreground">{snapshot.agent.name}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{connectedAgo(snapshot.view.firstHandshakeAt ?? snapshot.view.lastSeenAt)}</p>
 
-      <ul className="mt-6 space-y-2" aria-label="Verified checks">
-        {done.map((step) => (
-          <li key={step.key} className="flex items-center gap-2.5 text-sm text-foreground">
-            <CheckCircle2 className="size-4 text-success" aria-hidden="true" />
-            {step.label}
-            {step.at && <span className="num text-xs text-muted-foreground">{new Date(step.at).toLocaleTimeString([], { hour12: false })}</span>}
-          </li>
-        ))}
+      <ul className="mt-5 space-y-1.5 text-sm text-foreground">
+        <li>{monitoring ? "Monitoring is active." : "Monitoring starts when your agent reports its first event."}</li>
+        {asksForDecisions && <li>Asks Aegis for decisions. Policies are evaluated for the actions it asks about.</li>}
       </ul>
-      {awaitingActivity && <p className="mt-3 text-xs text-muted-foreground">Aegis starts monitoring as soon as the agent reports its first event.</p>}
 
-      <AgentProtectionStatus view={snapshot.view} className="mt-6" />
+      {!snapshot.hasAllowRule && (
+        <div className="mt-5 flex items-start gap-3 rounded-lg border border-border bg-surface-muted px-4 py-3.5" role="note">
+          <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <div className="min-w-0 text-sm">
+            <p className="font-medium text-foreground">No policy currently allows this agent&rsquo;s actions.</p>
+            <p className="mt-1 text-muted-foreground">Your agent is connected. Aegis denies actions by default, so add a policy for what it may do.</p>
+            <div className="mt-3">
+              <ButtonLink href={`/agents/${snapshot.agent.slug}?tab=permissions`} variant="secondary" size="sm">
+                Configure policies
+              </ButtonLink>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-6">
         <ButtonLink href={`/agents/${snapshot.agent.slug}`}>View agent</ButtonLink>

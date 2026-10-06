@@ -55,30 +55,32 @@ export default async function AgentsPage({
   return (
     <div>
       <PageHeader
-        title="Agents"
-        description={`${total} agent${total === 1 ? "" : "s"} in ${organization.name}`}
+        title="Your AI agents"
+        description={agents.length === 0 && !hasFilters ? "Connect your first AI agent to Aegis." : undefined}
         action={
           canManage && (
             <ButtonLink href="/agents/new">
               <Plus className="size-4" aria-hidden="true" />
-              Connect agent
+              Connect Agent
             </ButtonLink>
           )
         }
       />
 
-      <div className="mb-4">
-        <AgentFilters />
-      </div>
+      {(hasFilters || total > 8) && (
+        <div className="mb-4">
+          <AgentFilters />
+        </div>
+      )}
 
       {agents.length === 0 ? (
         <EmptyState
           icon={Bot}
-          title={hasFilters ? "No agents match your filters" : "No agents connected"}
+          title={hasFilters ? "No agents match your filters" : "No AI agents yet"}
           description={
             hasFilters
               ? "Try adjusting your search or filters."
-              : "Connect your first AI agent to begin monitoring behavior and enforcing policies."
+              : "Connect your agent to Aegis in under 60 seconds."
           }
           action={
             !hasFilters && (
@@ -86,7 +88,7 @@ export default async function AgentsPage({
                 {canManage && (
                   <ButtonLink href="/agents/new" size="sm">
                     <Plus className="size-4" aria-hidden="true" />
-                    Connect agent
+                    Connect Agent
                   </ButtonLink>
                 )}
               </div>
@@ -97,6 +99,14 @@ export default async function AgentsPage({
         <>
           <AgentsTable agents={agents} />
           <Pagination page={filters.page} pageCount={pageCount} buildHref={buildHref} />
+          {canManage && !hasFilters && (
+            <div className="mt-6">
+              <ButtonLink href="/agents/new" variant="secondary">
+                <Plus className="size-4" aria-hidden="true" />
+                Connect another agent
+              </ButtonLink>
+            </div>
+          )}
         </>
       )}
     </div>

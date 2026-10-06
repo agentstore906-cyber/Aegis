@@ -6,19 +6,41 @@ import { CodeBlock } from "@/components/ui/code-block";
 import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
 
-type Method = "sdk" | "http";
+type Method = "http" | "sdk";
 
 /**
- * The minimum an agent needs to say hello. The credential is referenced as an environment variable — it is not
- * pasted into the snippets — and the base URL is this deployment's own origin, read in the browser.
+ * The setup for ONE agent, generated from the credential Aegis just issued.
+ *
+ * The default is plain HTTP because it works today for any language with nothing to install. The SDK is shown as
+ * early access and never with an install command: `@aegis/agent-sdk` is not published to a public registry, so telling a
+ * customer to `npm install` it would send them to a 404. The credential is referenced as an environment variable in
+ * what is shown; "Copy setup" copies a ready-to-run version with the real key in it, only when the user asks.
+ *
+ * The setup says hello (handshake) AND reports one real event ("agent.started"), because a handshake proves the agent
+ * reached Aegis while monitoring only starts once an event arrives.
  */
 export function ConnectionInstructions({ secret }: { secret?: string }) {
   const [origin, setOrigin] = useState("https://YOUR-AEGIS-URL");
-  const [method, setMethod] = useState<Method>("sdk");
+  const [method, setMethod] = useState<Method>("http");
   useEffect(() => {
     const t = setTimeout(() => setOrigin(window.location.origin), 0);
     return () => clearTimeout(t);
   }, []);
+
+  const httpLines = (key: string) => [
+    `export AEGIS_API_KEY="${key}"`,
+    "",
+    "# Say hello. Your key already says which agent this is.",
+    `curl -X POST ${origin}/api/v1/connect/handshake \\`,
+    '  -H "Authorization: Bearer $AEGIS_API_KEY"',
+    "",
+    "# Report the first thing your agent does, so monitoring starts.",
+    `curl -X POST ${origin}/api/v1/events \\`,
+    '  -H "Authorization: Bearer $AEGIS_API_KEY" \\',
+    '  -H "Content-Type: application/json" \\',
+    `  -d '{"eventType":"SYSTEM","action":"agent.started"}'`,
+  ];
+  const http = httpLines("<your credential>").join("\n");
 
   const sdk = [
     'import { Aegis } from "@aegis/agent-sdk";',
@@ -28,17 +50,12 @@ export function ConnectionInstructions({ secret }: { secret?: string }) {
     `  baseUrl: "${origin}",`,
     "});",
     "",
-    "// Call once when your agent starts. Safe to repeat. Your key already says which agent this is.",
-    "await aegis.handshake();",
+    "await aegis.handshake(); // safe to repeat",
+    'await aegis.track({ eventType: "SYSTEM", action: "agent.started" });',
   ].join("\n");
-  // "Copy setup": everything the agent needs, ready to paste, with the real credential in it. Built only from what
-  // is already on this screen and copied only when the user asks.
-  const setup = secret
-    ? method === "sdk"
-      ? [`export AEGIS_API_KEY="${secret}"`, "npm install @aegis/agent-sdk", "", sdk].join("\n")
-      : [`export AEGIS_API_KEY="${secret}"`, `curl -X POST ${origin}/api/v1/connect/handshake \\`, '  -H "Authorization: Bearer $AEGIS_API_KEY"'].join("\n")
-    : null;
-  const http = [`curl -X POST ${origin}/api/v1/connect/handshake \\`, '  -H "Authorization: Bearer $AEGIS_API_KEY"'].join("\n");
+
+  // "Copy setup" always copies something that works today: the HTTP setup. (The SDK tab is early access, not installable.)
+  const setup = secret ? httpLines(secret).join("\n") : null;
 
   return (
     <div className="space-y-4">
@@ -50,22 +67,22 @@ export function ConnectionInstructions({ secret }: { secret?: string }) {
           <span className="num mr-2 text-muted-foreground">2</span>Run your agent once.
         </li>
         <li>
-          <span className="num mr-2 text-muted-foreground">3</span>Aegis verifies the connection on this page.
+          <span className="num mr-2 text-muted-foreground">3</span>Aegis confirms the connection on this page.
         </li>
       </ol>
 
-      {setup && (
+      {setup && method === "http" && (
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm text-foreground">Add this to your agent and run it once.</p>
           <CopyButton value={setup} label="Copy setup" />
         </div>
       )}
 
-      <div role="tablist" aria-label="Connection method" className="inline-flex rounded-md border border-border p-0.5">
+      <div role="tablist" aria-label="Setup" className="inline-flex rounded-md border border-border p-0.5">
         {(
           [
-            ["sdk", "Aegis SDK"],
-            ["http", "HTTP"],
+            ["http", "Any language"],
+            ["sdk", "Aegis SDK (early access)"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -81,15 +98,17 @@ export function ConnectionInstructions({ secret }: { secret?: string }) {
         ))}
       </div>
 
-      {method === "sdk" ? (
+      {method === "http" ? (
         <div className="space-y-3">
-          <CodeBlock language="bash" code={`npm install @aegis/agent-sdk\nexport AEGIS_API_KEY="<your credential>"`} />
-          <CodeBlock language="typescript" code={sdk} />
+          <CodeBlock language="bash" code={http} />
+          <p className="text-xs text-muted-foreground">Works from any language: these are plain HTTPS requests. Nothing to install.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          <CodeBlock language="bash" code={`export AEGIS_API_KEY="<your credential>"\n${http}`} />
-          <p className="text-xs text-muted-foreground">Any language works: the handshake is one authenticated POST.</p>
+          <p className="text-sm text-muted-foreground">
+            The TypeScript SDK is not on a public package registry yet, so there is nothing to <code className="text-xs">npm install</code> today. Use the setup under <em>Any language</em>, or ask Aegis for the package. Once you have it, this is the code:
+          </p>
+          <CodeBlock language="typescript" code={sdk} />
         </div>
       )}
     </div>

@@ -1,11 +1,11 @@
 import "server-only";
 
 import { prisma } from "@/lib/db";
-import { deriveConnectionView, type ConnectionState } from "@/lib/agents/connection-state";
+import { connectionSummary, deriveConnectionView, type ConnectionState } from "@/lib/agents/connection-state";
 import type { TrustState } from "@prisma/client";
 
 export type AgentListSignals = {
-  connection: { state: ConnectionState; label: string };
+  connection: { state: ConnectionState; label: string; summary: string; lastSeenAt: Date | null };
   /** Only present when the trust engine has actually evaluated this agent. */
   trust: { score: number; state: TrustState } | null;
 };
@@ -58,7 +58,10 @@ export async function getAgentListSignals(organizationId: string, agentIds: stri
       now
     );
     const t = trustByAgent.get(id);
-    out.set(id, { connection: { state: view.state, label: view.stateLabel }, trust: t ? { score: t.score, state: t.state } : null });
+    out.set(id, {
+      connection: { state: view.state, label: view.stateLabel, summary: connectionSummary(view), lastSeenAt: view.lastSeenAt },
+      trust: t ? { score: t.score, state: t.state } : null,
+    });
   }
   return out;
 }

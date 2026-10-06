@@ -134,3 +134,15 @@ describe("protection is never overstated", () => {
     }
   });
 });
+
+describe("connectionSummary (agent list status line)", () => {
+  it("never claims more than the evidence: waiting is not connected, and monitoring is active only with recent events", async () => {
+    const { connectionSummary } = await import("@/lib/agents/connection-state");
+    const base = { stateLabel: "x" };
+    expect(connectionSummary({ ...base, state: "WAITING", monitoring: "NONE" })).toBe("Waiting for connection");
+    expect(connectionSummary({ ...base, state: "CONNECTED", monitoring: "NONE" })).toBe("Connected · Waiting for first activity");
+    expect(connectionSummary({ ...base, state: "CONNECTED", monitoring: "RECEIVING" })).toBe("Connected · Monitoring active");
+    expect(connectionSummary({ ...base, state: "CONNECTED", monitoring: "QUIET" })).not.toMatch(/active/i);
+    expect(connectionSummary({ state: "REVOKED", stateLabel: "Revoked", monitoring: "RECEIVING" })).toBe("Revoked");
+  });
+});

@@ -83,12 +83,13 @@ export default async function HomePage() {
     return (
       <div className="aegis-enter mx-auto flex w-full max-w-sm flex-1 flex-col items-center justify-center pb-16 text-center">
         <LogoMark className="size-9" />
-        <h1 className="mt-6 text-3xl font-semibold text-foreground">Connect your agent</h1>
-        <p className="mt-2 text-muted-foreground">Your agent stays yours. Aegis becomes its control layer.</p>
+        <h1 className="mt-6 text-3xl font-semibold text-foreground">Connect your AI agent</h1>
+        <p className="mt-2 text-muted-foreground">Connect your agent to Aegis in under 60 seconds.</p>
         <div className="mt-8 flex w-full flex-col gap-2.5">
           {canManage ? (
             <ButtonLink href="/agents/new" size="lg">
-              Connect agent
+              <Plus className="size-4" aria-hidden="true" />
+              Connect Agent
             </ButtonLink>
           ) : (
             <p className="text-sm text-muted-foreground">Ask an owner or admin to connect an agent.</p>
@@ -110,7 +111,7 @@ export default async function HomePage() {
           <p className="text-sm text-muted-foreground">Your AI agent</p>
           <h1 className="mt-2 text-3xl font-semibold text-foreground">{single.name}</h1>
           <div className="mt-3 flex items-center gap-2">
-            {connectionOf(single.id) && <StateLine tone={CONNECTION_TONE[connectionOf(single.id)!.state]}>{connectionOf(single.id)!.label}</StateLine>}
+            {connectionOf(single.id) && <StateLine tone={CONNECTION_TONE[connectionOf(single.id)!.state]}>{connectionOf(single.id)!.summary}</StateLine>}
             {single.status !== "ACTIVE" && <AgentStatusBadge status={single.status} />}
           </div>
           <div className="mt-8">
@@ -134,7 +135,7 @@ export default async function HomePage() {
                     <span className="min-w-0 truncate font-medium text-foreground">{agent.name}</span>
                     <span className="flex shrink-0 items-center gap-2 text-sm">
                       {agent.status !== "ACTIVE" && <AgentStatusBadge status={agent.status} />}
-                      {c && <StateLine tone={CONNECTION_TONE[c.state]}>{c.label}</StateLine>}
+                      {c && <StateLine tone={CONNECTION_TONE[c.state]}>{c.summary}</StateLine>}
                     </span>
                   </Link>
                 </li>

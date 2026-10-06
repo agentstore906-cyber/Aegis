@@ -24,6 +24,8 @@ export type ConnectionSnapshotJson = {
   };
   baseline: { maturity: string; eventsObserved: number; version: number } | null;
   eventsObserved: number;
+  /** False when nothing would allow this agent's actions yet (Aegis denies by default). */
+  hasAllowRule: boolean;
 };
 
 export type StatusProblem = "signed-out" | "not-found" | "unavailable" | "unreachable";

@@ -69,11 +69,10 @@ export function AgentConnectionWizard({ atLimit }: { atLimit: boolean }) {
           }}
         >
           <div className="text-center">
-            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Connect your AI agent</h2>
-            <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">Your agent stays on your infrastructure. Aegis becomes its control layer.</p>
+            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Connect your agent</h2>
           </div>
           <div>
-            <Label htmlFor="agent-name">Name your agent</Label>
+            <Label htmlFor="agent-name">Agent name</Label>
             <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Customer Support Agent" maxLength={80} autoFocus />
           </div>
           <details className="group text-sm">
@@ -89,7 +88,7 @@ export function AgentConnectionWizard({ atLimit }: { atLimit: boolean }) {
           </details>
           {error && <ConnectionError title="Could not connect the agent" message={error} onRetry={create} />}
           <Button type="submit" size="lg" disabled={!validName || pending} className="w-full">
-            {pending ? "Connecting…" : "Connect agent"}
+            {pending ? "Setting up…" : "Continue"}
           </Button>
           <p className="text-center text-xs text-muted-foreground">Nothing is connected until your agent actually reaches Aegis.</p>
         </form>
@@ -102,8 +101,10 @@ export function AgentConnectionWizard({ atLimit }: { atLimit: boolean }) {
           ) : (
             <>
               <div>
-                <h2 className="text-lg font-semibold text-foreground">Your agent is ready to connect</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{created.name}</p>
+                <h2 className="text-lg font-semibold text-foreground">Your agent is ready</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Agent: <span className="font-medium text-foreground">{created.name}</span>
+                </p>
               </div>
 
               {created.secret ? (

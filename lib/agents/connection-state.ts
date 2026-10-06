@@ -156,3 +156,22 @@ export function deriveConnectionView(e: ConnectionEvidence, now: Date = new Date
     reportedEventCount: e.reportedEventCount,
   };
 }
+
+/**
+ * The one-line status customers see in agent lists. Built only from the derived view, so it can never say more
+ * than the evidence allows: "Monitoring active" only while reported events are really arriving.
+ */
+export function connectionSummary(view: Pick<ConnectionView, "state" | "stateLabel" | "monitoring">): string {
+  switch (view.state) {
+    case "WAITING":
+      return "Waiting for connection";
+    case "CONNECTED":
+      return view.monitoring === "RECEIVING"
+        ? "Connected · Monitoring active"
+        : view.monitoring === "QUIET"
+          ? "Connected · No recent activity"
+          : "Connected · Waiting for first activity";
+    default:
+      return view.stateLabel;
+  }
+}

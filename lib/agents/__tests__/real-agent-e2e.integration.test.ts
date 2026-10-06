@@ -314,6 +314,18 @@ describe.skipIf(!BASE)("Connect Agent — real external agent, real server", () 
     await prisma.apiKey.update({ where: { id: other.apiKey.id }, data: { revokedAt: new Date() } });
   });
 
+  it("read-only endpoints after disconnect: a valid key reads ONLY its own agent's history; never another agent's or organization's", async () => {
+    const other = await createApiKey(orgA, userId, { name: "reader", environment: "LIVE", agentId: a1.id });
+    const own = await fetch(`${BASE}/api/v1/agents/${a1.slug}/trust`, { headers: { authorization: `Bearer ${other.raw}` } });
+    expect(own.status).toBe(200); // history stays readable (deliberate: nothing can be written)
+    const sibling = await fetch(`${BASE}/api/v1/agents/${a2.slug}/trust`, { headers: { authorization: `Bearer ${other.raw}` } });
+    expect(sibling.status).toBe(403);
+    const bOnly = await connect(orgB, "Org B Only Agent");
+    const crossOrg = await fetch(`${BASE}/api/v1/agents/${bOnly.slug}/trust`, { headers: { authorization: `Bearer ${other.raw}` } });
+    expect(crossOrg.status).toBe(404); // not found inside the key's organization: Org B's agent is invisible
+    await prisma.apiKey.update({ where: { id: other.apiKey.id }, data: { revokedAt: new Date() } });
+  });
+
   it("RECONNECT keeps the same agent, issues a new credential, is WAITING until real contact, and the old key stays dead", async () => {
     const oldKey = a1.key;
     const r = await reconnectAgentConnection(orgA, userId, a1.slug);
@@ -349,6 +361,36 @@ describe.skipIf(!BASE)("Connect Agent — real external agent, real server", () 
     }
     expect((await snapshot(orgA, a2.slug))!.view.state).toBe("CONNECTED");
     expect((await snapshot(orgA, a3.slug))!.view.state).toBe("CONNECTED");
+  });
+
+  it("the setup the page hands out works exactly as written (empty-body handshake + agent.started event), and default-deny is visible", async () => {
+    const org = await prisma.organization.create({ data: { name: "E2E Setup", slug: `${RUN}-setup`, plan: "enterprise" } });
+    orgIds.push(org.id);
+    const agent = await connect(org.id, "Customer Support Agent");
+    expect((await snapshot(org.id, agent.slug))!.view.state).toBe("WAITING");
+
+    // Verbatim from components/agents/connection/connection-instructions.tsx: no JSON body on the handshake.
+    const hello = await fetch(`${BASE}/api/v1/connect/handshake`, { method: "POST", headers: { authorization: `Bearer ${agent.key}` } });
+    expect(hello.status).toBe(200);
+    const first = await fetch(`${BASE}/api/v1/events`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${agent.key}`, "content-type": "application/json" },
+      body: '{"eventType":"SYSTEM","action":"agent.started"}',
+    });
+    expect(first.status).toBe(201);
+
+    const s1 = (await snapshot(org.id, agent.slug))!;
+    expect(s1.view.state).toBe("CONNECTED");
+    expect(s1.view.reportedEventCount).toBe(1); // "Monitoring is active" is true only because this event really arrived
+    expect(s1.hasAllowRule).toBe(false); // connected, but nothing allows its actions yet: the UI says so instead of looking broken
+    const denied = await api("/api/v1/evaluate", agent.key, { action: "crm.lookup" });
+    expect((await denied.json()).decision).toBe("BLOCK");
+
+    await prisma.agentPermission.create({ data: { organizationId: org.id, agentId: agent.id, action: "crm.lookup", decision: "ALLOW" } });
+    expect((await snapshot(org.id, agent.slug))!.hasAllowRule).toBe(true);
+    // Another agent's permission does not count for this one.
+    const other = await connect(org.id, "Sales Agent");
+    expect((await snapshot(org.id, other.slug))!.hasAllowRule).toBe(false);
   });
 
   it("Free plan: every agent the plan allows can actually be connected (each gets its own credential)", async () => {

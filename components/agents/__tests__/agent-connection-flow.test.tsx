@@ -11,7 +11,8 @@ vi.mock("@/lib/agents/connect-actions", () => ({
 }));
 
 import { AgentConnectionWizard } from "@/components/agents/agent-connection-wizard";
-import { AgentDetected } from "@/components/agents/connection/agent-detected";
+import { ConnectionInstructions } from "@/components/agents/connection/connection-instructions";
+import { AgentDetected, connectedAgo } from "@/components/agents/connection/agent-detected";
 import { AgentProtectionStatus } from "@/components/agents/connection/agent-protection-status";
 import { ConnectionCredential } from "@/components/agents/connection/connection-credential";
 import { ConnectionError } from "@/components/agents/connection/connection-error";
@@ -47,16 +48,17 @@ const snap = (v = view()): ConnectionSnapshotJson => ({
   view: v,
   baseline: null,
   eventsObserved: v.reportedEventCount,
+  hasAllowRule: true,
 });
 
 describe("<AgentConnectionWizard> first screen", () => {
   const markup = renderToStaticMarkup(<AgentConnectionWizard atLimit={false} />);
 
   it("asks only for a friendly name, and offers one clear Connect action", () => {
-    expect(markup).toContain("Connect your AI agent");
-    expect(markup).toContain("Name your agent");
+    expect(markup).toContain("Connect your agent");
+    expect(markup).toContain("Agent name");
     expect(markup).toContain("Customer Support Agent");
-    expect(markup).toContain(">Connect agent<");
+    expect(markup).toContain(">Continue<");
     expect(markup).toContain("Advanced options"); // environment is tucked away
   });
   it("exposes no identifiers, no credential, no demo agent and no success state before anything happened", () => {
@@ -89,25 +91,59 @@ describe("<HandshakeState>", () => {
 });
 
 describe("<AgentDetected>", () => {
-  it("lists only the checks that have evidence; first activity is not shown until an event arrived", () => {
+  it("says Agent connected, names the agent, and links to it", () => {
     const html = renderToStaticMarkup(<AgentDetected snapshot={snap()} />);
-    expect(html).toContain("Identity verified");
-    expect(html).toContain("Connection established");
-    expect(html).not.toContain("First activity received");
-    expect(html).toMatch(/as soon as the agent reports its first event/);
+    expect(html).toContain("Agent connected");
     expect(html).toContain("Customer Support Agent");
+    expect(html).toContain("View agent");
     expect(html).toContain("/agents/support");
   });
-  it("adds first activity once an event has actually been received", () => {
-    const v = view({
-      monitoring: "RECEIVING",
-      monitoringLabel: "Monitored",
-      reportedEventCount: 2,
-      steps: view().steps.map((s) => (s.key === "activity" ? { ...s, done: true } : s)),
-    });
-    const html = renderToStaticMarkup(<AgentDetected snapshot={snap(v)} />);
-    expect(html).toContain("First activity received");
-    expect(html).not.toMatch(/as soon as the agent reports/);
+  it("does not claim monitoring is active until an event has actually arrived", () => {
+    const before = renderToStaticMarkup(<AgentDetected snapshot={snap()} />);
+    expect(before).not.toContain("Monitoring is active");
+    expect(before).toMatch(/Monitoring starts when your agent reports its first event/);
+    const after = renderToStaticMarkup(<AgentDetected snapshot={snap(view({ monitoring: "RECEIVING", monitoringLabel: "Monitored", reportedEventCount: 2 }))} />);
+    expect(after).toContain("Monitoring is active");
+  });
+  it("explains default-deny when nothing allows the agent, without making the connection look failed", () => {
+    const html = renderToStaticMarkup(<AgentDetected snapshot={{ ...snap(), hasAllowRule: false }} />);
+    expect(html).toContain("Agent connected");
+    expect(html).toContain("No policy currently allows this agent");
+    expect(html).toContain("Configure policies");
+    expect(html).toContain("/agents/support?tab=permissions");
+    expect(html).not.toMatch(/failed|error|problem/i);
+    expect(renderToStaticMarkup(<AgentDetected snapshot={snap()} />)).not.toContain("Configure policies");
+  });
+  it("never claims protection or blocking, and only says it asks for decisions when it does", () => {
+    const asks = renderToStaticMarkup(<AgentDetected snapshot={snap(view({ protection: "ASKS_FOR_DECISIONS" }))} />);
+    expect(asks).toContain("Asks Aegis for decisions");
+    for (const forbidden of FORBIDDEN_CLAIMS) expect(asks).not.toMatch(forbidden);
+    expect(renderToStaticMarkup(<AgentDetected snapshot={snap()} />)).not.toContain("Asks Aegis for decisions");
+  });
+  it("says 'just now' only for a fresh connection", () => {
+    const now = new Date("2026-10-03T10:00:30Z");
+    expect(connectedAgo("2026-10-03T10:00:00.000Z", now)).toBe("Connected just now");
+    expect(connectedAgo("2026-10-03T09:57:00.000Z", now)).toBe("Connected 3 minutes ago");
+    expect(connectedAgo(null, now)).toBe("Connected");
+  });
+});
+
+describe("<ConnectionInstructions>", () => {
+  const key = "aegis_live_abcdefghijklmnopqrstuvwxyz0123456789";
+  const html = renderToStaticMarkup(<ConnectionInstructions secret={key} />);
+  it("never tells a customer to install a package that is not publicly available", () => {
+    expect(html).not.toMatch(/npm install|npm i |yarn add|pnpm add/);
+    expect(html).toContain("Nothing to install");
+  });
+  it("defaults to the setup that works today, with a Copy setup action, and labels the SDK early access", () => {
+    expect(html).toContain("Copy setup");
+    expect(html).toContain("/api/v1/connect/handshake");
+    expect(html).toContain("/api/v1/events");
+    expect(html).toContain("Aegis SDK (early access)");
+  });
+  it("shows no internal identifiers and keeps the real key out of the visible markup", () => {
+    expect(html).not.toContain(key);
+    expect(html).not.toMatch(/agent[_ ]id|organization[_ ]id/i);
   });
 });
 
