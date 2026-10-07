@@ -13,7 +13,7 @@ export function CtaSection() {
         </p>
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <TrackedButtonLink href="/scan" size="lg" event="landing_cta_clicked" eventProps={{ source: "cta_section_scan" }}>
-            Scan your AI agent in 60 seconds
+            Free Risk Scanner
           </TrackedButtonLink>
           <ButtonLink href="/pricing" variant="secondary" size="lg">
             View pricing

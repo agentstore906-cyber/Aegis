@@ -173,6 +173,7 @@ model Organization {
   agents            Agent[]
   riskReviewLabels  RiskReviewLabel[]
   incidents         Incident[]
+  agentScans        AgentSecurityScan[]
   incidentActivity  IncidentActivity[]
   activityEvents    ActivityEvent[]
   agentPermissions  AgentPermission[]
@@ -311,6 +312,7 @@ model Agent {
   trustState        AgentTrustState?
   trustTransitions  AgentTrustTransition[]
   incidents         Incident[]
+  agentScans        AgentSecurityScan[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, status])
@@ -335,6 +337,8 @@ enum ConnectorType {
   OPENAI
   ANTHROPIC
   CUSTOM_SDK
+  // Aegis connects TO an external agent over the aegis-agent/1 protocol (docs/AEGIS_AGENT_ENDPOINT_PROTOCOL.md).
+  AEGIS_ENDPOINT
 }
 
 enum ConnectionStatus {
@@ -362,7 +366,11 @@ model AgentConnection {
   // ANTHROPIC (no discovery API exists there) and CUSTOM_SDK (no
   // provider-side resource to reference).
   externalAccountLabel String?
+  // AEGIS_ENDPOINT: the agent's own stable id, as declared by the agent and proven with the shared secret when it
+  // was connected. It is PINNED: a later verification that answers with a different id is a different agent.
   externalAgentId      String?
+  // AEGIS_ENDPOINT only: the URL Aegis connects to (normalized; no credentials in it). Unique per organization.
+  endpointUrl          String?
 
   // Encrypted credential, OPENAI/ANTHROPIC only — see
   // lib/connectors/crypto.ts (AES-256-GCM, key derived from AUTH_SECRET).
@@ -411,6 +419,7 @@ model AgentConnection {
   createdBy    User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
   apiKey       ApiKey?      @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
 
+  @@unique([organizationId, endpointUrl])
   @@index([organizationId, status])
   @@index([apiKeyId])
   @@map("agent_connections")
@@ -1831,4 +1840,34 @@ model ScannerAnalyticsEvent {
   @@index([event, createdAt])
   @@index([scanId])
   @@map("scanner_analytics_events")
+}
+
+// A security scan of ONE canonical agent, run only against an agent that has really contacted Aegis (an
+// authenticated request with its own bound credential). Holds what Aegis observed and what its read-only
+// policy probes returned — never a score, never anything the user typed about the agent.
+model AgentSecurityScan {
+  id             String   @id @default(cuid())
+  organizationId String
+  agentId        String
+  startedById    String?
+  createdAt      DateTime @default(now())
+
+  // The contact evidence that made the scan allowed, copied at scan time.
+  firstHandshakeAt DateTime?
+  lastSeenAt       DateTime?
+
+  observations Json // facts read from stored evidence, each with its source
+  tests        Json // read-only policy probes: action, decision returned, decision source
+  findings     Json // concrete findings, each pointing at the observation or test behind it
+  findingCount Int
+  // Read-only tests run against the agent's own endpoint, and the checks that could not be performed (stated, never passed).
+  endpointTests Json @default("[]")
+  notTested     Json @default("[]")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("agent_security_scans")
 }

@@ -10,7 +10,7 @@ export function MobileNav({ links }: { links: { href: string; label: string }[] 
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="md:hidden">
+    <div className="lg:hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -53,7 +53,7 @@ export function MobileNav({ links }: { links: { href: string; label: string }[] 
               event="landing_cta_clicked"
               eventProps={{ source: "mobile_nav_scan" }}
             >
-              Scan your AI agent
+              Free Risk Scanner
             </TrackedButtonLink>
             <TrackedButtonLink
               href="/sign-up"

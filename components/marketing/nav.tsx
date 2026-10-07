@@ -8,7 +8,7 @@ const LINKS = [
   { href: "/#preview", label: "Product" },
   { href: "/#solution", label: "Solutions" },
   { href: "/#developers", label: "Developers" },
-  { href: "/scan", label: "Free scanner" },
+  { href: "/scan", label: "Free Risk Scanner" },
   { href: "/pricing", label: "Pricing" },
 ];
 
@@ -20,7 +20,7 @@ export function MarketingNav() {
           <Logo />
         </Link>
 
-        <nav className="hidden items-center gap-8 md:flex" aria-label="Primary">
+        <nav className="hidden items-center gap-8 lg:flex" aria-label="Primary">
           {LINKS.map((link) => (
             <Link
               key={link.href}
@@ -32,7 +32,7 @@ export function MarketingNav() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-3 lg:flex">
           <ButtonLink href="/sign-in" variant="ghost" size="sm">
             Sign In
           </ButtonLink>

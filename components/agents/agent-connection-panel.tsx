@@ -23,6 +23,7 @@ const CONNECTOR_LABELS: Record<ConnectorType, string> = {
   OPENAI: "OpenAI",
   ANTHROPIC: "Anthropic",
   CUSTOM_SDK: "Custom Agent (Aegis SDK)",
+  AEGIS_ENDPOINT: "Agent endpoint (aegis-agent/1)",
 };
 
 const CAPABILITY_LABELS: Record<keyof ConnectorCapabilities, string> = {
@@ -35,7 +36,7 @@ const CAPABILITY_LABELS: Record<keyof ConnectorCapabilities, string> = {
   credentialVerification: "Credential verification",
 };
 
-const NEEDS_CREDENTIAL: ConnectorType[] = ["OPENAI", "ANTHROPIC"];
+const NEEDS_CREDENTIAL: ConnectorType[] = ["OPENAI", "ANTHROPIC", "AEGIS_ENDPOINT"];
 
 export function AgentConnectionPanel({
   agentSlug,

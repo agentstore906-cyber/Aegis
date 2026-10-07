@@ -1,11 +1,25 @@
 import "server-only";
 
 import { prisma } from "@/lib/db";
-import { connectionSummary, deriveConnectionView, type ConnectionState } from "@/lib/agents/connection-state";
+import { connectionSummary, deriveConnectionView, type ConnectionState, type MonitoringState } from "@/lib/agents/connection-state";
 import type { TrustState } from "@prisma/client";
 
+/**
+ * Open (not yet acknowledged or resolved) security alerts per agent, for the agents given — one grouped query,
+ * tenant-scoped. Callers must only use this when the viewer may see security information.
+ */
+export async function getOpenAlertCounts(organizationId: string, agentIds: string[]): Promise<Map<string, number>> {
+  if (agentIds.length === 0) return new Map();
+  const grouped = await prisma.securityAlert.groupBy({
+    by: ["agentId"],
+    where: { organizationId, agentId: { in: agentIds }, status: "OPEN" },
+    _count: { _all: true },
+  });
+  return new Map(grouped.map((g) => [g.agentId, g._count._all]));
+}
+
 export type AgentListSignals = {
-  connection: { state: ConnectionState; label: string; summary: string; lastSeenAt: Date | null };
+  connection: { state: ConnectionState; label: string; summary: string; lastSeenAt: Date | null; monitoring: MonitoringState };
   /** Only present when the trust engine has actually evaluated this agent. */
   trust: { score: number; state: TrustState } | null;
 };
@@ -59,7 +73,7 @@ export async function getAgentListSignals(organizationId: string, agentIds: stri
     );
     const t = trustByAgent.get(id);
     out.set(id, {
-      connection: { state: view.state, label: view.stateLabel, summary: connectionSummary(view), lastSeenAt: view.lastSeenAt },
+      connection: { state: view.state, label: view.stateLabel, summary: connectionSummary(view), lastSeenAt: view.lastSeenAt, monitoring: view.monitoring },
       trust: t ? { score: t.score, state: t.state } : null,
     });
   }

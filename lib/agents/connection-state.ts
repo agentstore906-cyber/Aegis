@@ -108,10 +108,19 @@ export function deriveConnectionView(e: ConnectionEvidence, now: Date = new Date
       label: "Credential verified",
       detail: "The provider accepted the credential. The agent itself has not contacted Aegis yet.",
     },
-    CONNECTED: { label: "Connected", detail: "A request authenticated with this agent's credential has reached Aegis." },
+    CONNECTED: {
+      label: "Connected",
+      detail:
+        e.connectorType === "AEGIS_ENDPOINT"
+          ? "Aegis connected to this agent and verified it."
+          : "A request authenticated with this agent's credential has reached Aegis.",
+    },
     NOT_SEEN_RECENTLY: {
-      label: "Not seen recently",
-      detail: "This agent connected before, but Aegis has not heard from it for over 24 hours. It may simply be idle.",
+      label: e.connectorType === "AEGIS_ENDPOINT" ? "Not verified recently" : "Not seen recently",
+      detail:
+        e.connectorType === "AEGIS_ENDPOINT"
+          ? "Aegis verified this agent before, but not in the last 24 hours. Check the connection to verify it again."
+          : "This agent connected before, but Aegis has not heard from it for over 24 hours. It may simply be idle.",
     },
     ERROR: { label: "Connection problem", detail: "Aegis cannot rely on this connection." },
     REVOKED: { label: "Revoked", detail: "Nothing can authenticate with this connection until it is reconnected." },
@@ -121,7 +130,16 @@ export function deriveConnectionView(e: ConnectionEvidence, now: Date = new Date
   const lastEvent = e.lastReportedEventAt;
   const monitoring: MonitoringState =
     e.reportedEventCount === 0 ? "NONE" : lastEvent && now.getTime() - lastEvent.getTime() > NOT_SEEN_AFTER_MS ? "QUIET" : "RECEIVING";
-  const monitoringLabel = { NONE: "Not monitored yet", RECEIVING: "Monitored", QUIET: "Monitored · quiet" }[monitoring];
+  // Past events say what Aegis HAS received, not that it is monitoring now: when the credential cannot be used
+  // (disconnected, failed) or has just been replaced and not yet used, nothing new can arrive.
+  const monitoringLabel =
+    state === "REVOKED"
+      ? "Not monitoring · disconnected"
+      : state === "ERROR"
+        ? "Not monitoring · connection problem"
+        : state === "WAITING" && monitoring !== "NONE"
+          ? "Not monitoring · waiting for reconnect"
+          : { NONE: "Not monitored yet", RECEIVING: "Monitored", QUIET: "Monitored · quiet" }[monitoring];
 
   // Protection: Aegis can only say whether the agent ASKS for decisions.
   const protection: ProtectionState = e.decisionRequests7d > 0 ? "ASKS_FOR_DECISIONS" : "MONITORING_ONLY";

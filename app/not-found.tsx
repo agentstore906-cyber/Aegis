@@ -17,7 +17,7 @@ export default function NotFound() {
         The page you&rsquo;re looking for may have been moved, or the link was mistyped.
       </p>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-        <ButtonLink href="/overview">Go to dashboard</ButtonLink>
+        <ButtonLink href="/agents">Go to dashboard</ButtonLink>
         <ButtonLink href="/" variant="secondary">
           Back to home
         </ButtonLink>

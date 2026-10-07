@@ -17,8 +17,12 @@ import {
   listPoliciesForAgent,
 } from "@/lib/policies/repository";
 import { listApprovalsForAgent } from "@/lib/approvals/repository";
-import { getSecurityStatsForAgent, getAgentRiskScore, listSecurityAlertsForAgent } from "@/lib/security/repository";
+import { AgentScanPanel } from "@/components/security/agent-scan-panel";
+import { getLatestAgentScan } from "@/lib/scanner/agent-scan";
+import { scanEligibility } from "@/lib/scanner/agent-scan-model";
+import { getSecurityStatsForAgent, listSecurityAlertsForAgent } from "@/lib/security/repository";
 import { getBehaviorProfile, listDeviations } from "@/lib/behavior/queries";
+import { getOpenAlertCounts } from "@/lib/agents/list-signals";
 import { getTrust, listTrustHistory } from "@/lib/trust/queries";
 import { canViewSecurityAlerts } from "@/lib/security/authorization";
 import { canViewActionGraph } from "@/lib/graph/authorization";
@@ -32,7 +36,6 @@ import { AgentTabs } from "@/components/agents/agent-tabs";
 import { AgentStatusToggle } from "@/components/agents/agent-status-toggle";
 import {
   AgentStatusBadge,
-  RiskBadge,
   ApprovalStatusBadge,
   SecurityAlertSeverityBadge,
   SecurityAlertStatusBadge,
@@ -50,7 +53,6 @@ import { AgentConnectionPanel } from "@/components/agents/agent-connection-panel
 import { AgentProtectionStatus } from "@/components/agents/connection/agent-protection-status";
 import type { ConnectionSnapshotJson } from "@/components/agents/connection/use-connection-status";
 import { getAgentConnectionSnapshot } from "@/lib/agents/connection-view";
-import { AgentRiskScore } from "@/components/security/agent-risk-score";
 import { BehaviorDetails, BehaviorSummary } from "@/components/behavior/behavior-view";
 import { TrustDetails, TrustSummary } from "@/components/trust/trust-view";
 import { RunGraphView, RunListView } from "@/components/graph/action-graph-view";
@@ -98,17 +100,16 @@ export default async function AgentDetailPage({
 
   // Behavioral memory (P2) is security data: same visibility as security alerts.
   const canViewBehavior = canViewSecurityAlerts(role);
-  const [riskSecurityStats, riskActivityCounts, agentRisk, behavior, trustSummary] =
+  const [riskSecurityStats, riskActivityCounts, behavior, trustSummary] =
     tab === "overview"
       ? await Promise.all([
           getSecurityStatsForAgent(organization.id, agent.id),
           getAgentActivityStatusCounts(organization.id, agent.id),
-          getAgentRiskScore(organization.id, agent),
           canViewBehavior ? getBehaviorProfile(organization.id, agent.id) : Promise.resolve(null),
           // Agent trust (P3) has the same visibility as behavior and security alerts.
           canViewBehavior ? getTrust(organization.id, agent.id) : Promise.resolve(null),
         ])
-      : [null, null, null, null, null];
+      : [null, null, null, null];
   const trustTab =
     tab === "trust" && canViewBehavior
       ? await Promise.all([getTrust(organization.id, agent.id), listTrustHistory(organization.id, agent.id, { limit: 20 })])
@@ -137,6 +138,9 @@ export default async function AgentDetailPage({
 
   // Connection, monitoring and decision state, derived from evidence (never from a stored click).
   const connectionSnapshot: ConnectionSnapshotJson | null = JSON.parse(JSON.stringify(await getAgentConnectionSnapshot(organization.id, agent.slug))) as ConnectionSnapshotJson | null;
+  const latestScan = tab === "security" && canViewBehavior ? await getLatestAgentScan(organization.id, agent.id) : null;
+  // Open alerts are a count of stored rows, shown only to viewers who may see security alerts.
+  const openAlerts = canViewBehavior ? ((await getOpenAlertCounts(organization.id, [agent.id])).get(agent.id) ?? 0) : null;
 
   const connectionView =
     tab === "overview" && agent.connection
@@ -186,23 +190,61 @@ export default async function AgentDetailPage({
             </div>
           )}
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-          {connectionSnapshot && (
-            <StateLine tone={CONNECTION_TONE[connectionSnapshot.view.state]}>
-              <span className="font-medium">{connectionSnapshot.view.stateLabel}</span>
-            </StateLine>
-          )}
-          <span className="text-muted-foreground">{agent.environment.charAt(0) + agent.environment.slice(1).toLowerCase()}</span>
+        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+          <span>{agent.environment.charAt(0) + agent.environment.slice(1).toLowerCase()}</span>
           {agent.status !== "ACTIVE" && <AgentStatusBadge status={agent.status} />}
-          <RiskBadge level={agent.riskLevel} />
-          <span className="text-muted-foreground">
-            {connectionSnapshot?.view.lastSeenAt
-              ? `Last seen ${formatRelativeTime(new Date(connectionSnapshot.view.lastSeenAt))}`
-              : agent.lastActiveAt
-                ? `Last active ${formatRelativeTime(agent.lastActiveAt)}`
-                : "Never seen"}
-          </span>
-        </div>
+        </p>
+
+        <dl className="aegis-node mt-5 grid grid-cols-2 gap-x-6 gap-y-5 p-4 sm:p-5 lg:grid-cols-5">
+          <div>
+            <dt className="aegis-eyebrow">Connection</dt>
+            <dd className="mt-1.5 text-sm font-medium">
+              {connectionSnapshot ? (
+                <StateLine tone={CONNECTION_TONE[connectionSnapshot.view.state]}>{connectionSnapshot.view.stateLabel}</StateLine>
+              ) : (
+                <span className="text-muted-foreground">Unknown</span>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="aegis-eyebrow">Last seen</dt>
+            <dd className="mt-1.5 text-sm text-foreground">
+              {connectionSnapshot?.view.lastSeenAt
+                ? formatRelativeTime(new Date(connectionSnapshot.view.lastSeenAt))
+                : agent.lastActiveAt
+                  ? formatRelativeTime(agent.lastActiveAt)
+                  : "Never seen"}
+            </dd>
+          </div>
+          <div>
+            <dt className="aegis-eyebrow">Monitoring</dt>
+            <dd className="mt-1.5 text-sm text-foreground">{connectionSnapshot ? connectionSnapshot.view.monitoringLabel : "Unknown"}</dd>
+          </div>
+          <div>
+            <dt className="aegis-eyebrow">Security alerts</dt>
+            <dd className="mt-1.5 text-sm text-foreground">{openAlerts === null ? "Not visible to your role" : openAlerts > 0 ? `${openAlerts} open` : "None open"}</dd>
+          </div>
+          <div>
+            <dt className="aegis-eyebrow">Policy</dt>
+            <dd className="mt-1.5 text-sm text-foreground">
+              {connectionSnapshot ? (connectionSnapshot.hasAllowRule ? "Allow rules in place" : "No allow rules · denied by default") : "Unknown"}
+            </dd>
+          </div>
+        </dl>
+
+        {openAlerts !== null && openAlerts > 0 && (
+          <div role="note" className="mt-3 flex flex-col gap-3 rounded-xl border border-risk-border bg-risk-bg px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-foreground">
+              <span className="font-semibold uppercase tracking-[0.12em] text-risk">Security alerts</span>
+              <span className="ml-2 text-muted-foreground">
+                {openAlerts} open {openAlerts === 1 ? "alert requires" : "alerts require"} attention.
+              </span>
+            </p>
+            <ButtonLink href={`/agents/${agent.slug}?tab=security`} variant="secondary" size="sm">
+              View security details
+            </ButtonLink>
+          </div>
+        )}
       </header>
 
       <AgentTabs slug={agent.slug} active={tab} />
@@ -358,20 +400,6 @@ export default async function AgentDetailPage({
                 )}
               </CardContent>
             </Card>
-
-            {agentRisk && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Risk score</CardTitle>
-                  <Link href="/security" className="text-xs font-medium text-muted-foreground hover:text-foreground">
-                    Security
-                  </Link>
-                </CardHeader>
-                <CardContent>
-                  <AgentRiskScore risk={agentRisk} />
-                </CardContent>
-              </Card>
-            )}
 
             {behavior && (
               <Card>
@@ -706,6 +734,17 @@ export default async function AgentDetailPage({
 
       {tab === "security" && (
         <div>
+          {canViewBehavior && (
+            <AgentScanPanel
+              slug={agent.slug}
+              canScan={canManageAgents(role)}
+              blockedReason={(() => {
+                const e = scanEligibility({ state: connectionSnapshot?.view.state ?? "WAITING", connectorType: connectionSnapshot?.connectorType ?? null, firstHandshakeAt: connectionSnapshot?.view.firstHandshakeAt ?? null });
+                return e.ok ? null : e.message;
+              })()}
+              scan={latestScan ? { createdAtIso: latestScan.createdAt.toISOString(), result: latestScan.result } : null}
+            />
+          )}
           <div className="mb-4 flex justify-end">
             <ButtonLink href={`/audit?agentId=${agent.id}`} variant="secondary" size="sm">
               View audit trail

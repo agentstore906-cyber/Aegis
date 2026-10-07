@@ -36,7 +36,6 @@ describe("adoptionStage — CONNECT → OBSERVE → PROTECT from data", () => {
 
 describe("attentionFlags", () => {
   const calm: AttentionInput = {
-    configuredRiskLevel: "LOW",
     trustState: "TRUSTED",
     deviations7d: 0,
     openIncidents: 0,
@@ -51,11 +50,9 @@ describe("attentionFlags", () => {
   it("a calm, owned, isolated agent has no flags", () => expect(attentionFlags(calm)).toEqual([]));
 
   it("each condition raises exactly its own flag", () => {
-    expect(attentionFlags({ ...calm, configuredRiskLevel: "HIGH" })).toEqual(["HIGH_RISK"]);
-    expect(attentionFlags({ ...calm, configuredRiskLevel: "CRITICAL" })).toEqual(["HIGH_RISK"]);
     expect(attentionFlags({ ...calm, trustState: "DEGRADED" })).toEqual(["TRUST_DEGRADED"]);
-    expect(attentionFlags({ ...calm, trustState: "HIGH_RISK" })).toEqual(["HIGH_RISK", "TRUST_DEGRADED"]);
-    expect(attentionFlags({ ...calm, trustState: "RESTRICTED" })).toEqual(["HIGH_RISK", "TRUST_DEGRADED"]);
+    expect(attentionFlags({ ...calm, trustState: "HIGH_RISK" })).toEqual(["TRUST_DEGRADED"]);
+    expect(attentionFlags({ ...calm, trustState: "RESTRICTED" })).toEqual(["TRUST_DEGRADED"]);
     expect(attentionFlags({ ...calm, deviations7d: 2 })).toEqual(["UNUSUAL_BEHAVIOR"]);
     expect(attentionFlags({ ...calm, openIncidents: 1 })).toEqual(["OPEN_INCIDENT"]);
     expect(attentionFlags({ ...calm, pendingApprovals: 1 })).toEqual(["PENDING_APPROVAL"]);

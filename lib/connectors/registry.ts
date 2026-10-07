@@ -5,12 +5,14 @@ import type { ConnectorType } from "@prisma/client";
 import { openaiConnector } from "@/lib/connectors/openai";
 import { anthropicConnector } from "@/lib/connectors/anthropic";
 import { customConnector } from "@/lib/connectors/custom";
+import { endpointConnector } from "@/lib/connectors/endpoint";
 import type { AgentConnector } from "@/lib/connectors/types";
 
 const CONNECTORS: Record<ConnectorType, AgentConnector> = {
   OPENAI: openaiConnector,
   ANTHROPIC: anthropicConnector,
   CUSTOM_SDK: customConnector,
+  AEGIS_ENDPOINT: endpointConnector,
 };
 
 export function getConnector(type: ConnectorType): AgentConnector {

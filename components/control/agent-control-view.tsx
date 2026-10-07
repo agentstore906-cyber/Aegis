@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { AdoptionBadge, FlagBadges, PostureBadge, coverageText } from "@/components/control/control-badges";
-import { DecisionBadge, RiskBadge } from "@/components/dashboard/status-badges";
+import { DecisionBadge } from "@/components/dashboard/status-badges";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AgentControlView } from "@/lib/control/agent-view";
@@ -188,7 +188,7 @@ export function AgentControlPanel({ view, organizationName }: { view: AgentContr
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <p className="flex flex-wrap items-center gap-2">
-            Configured risk <RiskBadge level={agent.configuredRiskLevel} /> · trust{" "}
+            Trust{" "}
             <span className="text-foreground">{agent.trust ? `${lower(agent.trust.state)} (${agent.trust.score}/100)` : "not evaluated yet"}</span>
           </p>
           <p className="text-foreground">

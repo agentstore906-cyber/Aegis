@@ -210,7 +210,8 @@ export async function getOrganizationScan(organizationId: string, id: string): P
 /** Links a scan to one of the organization's own agents. The agent must belong to the same organization. */
 export async function linkScanToAgent(organizationId: string, scanId: string, agentId: string): Promise<boolean> {
   if (!isScanId(scanId)) return false;
-  const agent = await prisma.agent.findFirst({ where: { id: agentId, organizationId }, select: { id: true } });
+  // Only an agent that has really contacted Aegis can be the subject of a scan link: a pending record is not an agent yet.
+  const agent = await prisma.agent.findFirst({ where: { id: agentId, organizationId, connection: { is: { firstHandshakeAt: { not: null } } } }, select: { id: true } });
   if (!agent) return false;
   const { count } = await prisma.riskScan.updateMany({ where: { id: scanId, organizationId }, data: { connectedAgentId: agent.id } });
   if (count > 0) await trackScannerEvent("agent_connected", { organizationId, scanId, properties: { source: "dashboard" } });

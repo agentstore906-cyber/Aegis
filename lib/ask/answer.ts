@@ -2,7 +2,7 @@ import "server-only";
 
 import { listActivityEvents } from "@/lib/activity/queries";
 import { getSpendSummary, getSpendByAgent } from "@/lib/costs/queries";
-import { listSecurityAlertsByType, listRecentAnomalies, getHighRiskAgentsSummary } from "@/lib/security/repository";
+import { listSecurityAlertsByType, listRecentAnomalies, getAgentsWithMostOpenAlerts } from "@/lib/security/repository";
 import { SECURITY_ALERT_TYPES } from "@/lib/security/types";
 import { listPolicyEvaluations } from "@/lib/policies/repository";
 import { listApprovalRequests } from "@/lib/approvals/repository";
@@ -99,15 +99,15 @@ const INTENTS: Intent[] = [
   },
   {
     id: "highest_risk_agent",
-    patterns: [/highest.risk|riskiest|most risky|most dangerous/i],
+    patterns: [/highest.risk|riskiest|most risky|most dangerous|most (open )?alerts/i],
     handler: async (organizationId) => {
-      const [top] = await getHighRiskAgentsSummary(organizationId, 1);
+      const [top] = await getAgentsWithMostOpenAlerts(organizationId, 1);
       if (!top) {
         return { intent: "highest_risk_agent", summary: "No agent currently has open high or critical security alerts.", evidence: [] };
       }
       return {
         intent: "highest_risk_agent",
-        summary: `${top.agent.name} is the highest-risk agent: ${top.highOrCriticalAlertCount} open high/critical alert${top.highOrCriticalAlertCount === 1 ? "" : "s"}${top.criticalAlertCount > 0 ? ` (${top.criticalAlertCount} critical)` : ""}.`,
+        summary: `${top.agent.name} has the most open high/critical alerts: ${top.highOrCriticalAlertCount} open high/critical alert${top.highOrCriticalAlertCount === 1 ? "" : "s"}${top.criticalAlertCount > 0 ? ` (${top.criticalAlertCount} critical)` : ""}.`,
         evidence: [{ type: "agent", label: top.agent.name, href: `/agents/${top.agent.slug}` }],
       };
     },

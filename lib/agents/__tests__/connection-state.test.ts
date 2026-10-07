@@ -135,6 +135,22 @@ describe("protection is never overstated", () => {
   });
 });
 
+describe("monitoring label never outlives a usable connection", () => {
+  const withEvents = { reportedEventCount: 5, lastReportedEventAt: ago(HOUR) };
+  it("says Monitored only while connected and events are arriving", () => {
+    expect(deriveConnectionView(connected(withEvents), NOW).monitoringLabel).toBe("Monitored");
+  });
+  it("does not say Monitored after disconnect, failure, or a replaced credential that has not been used", () => {
+    const labels = [
+      connected({ ...withEvents, status: "DISCONNECTED" }),
+      connected({ ...withEvents, apiKey: { revokedAt: ago(HOUR), expiresAt: null } }),
+      connected({ ...withEvents, status: "FAILED", lastHealthError: "x" }),
+      connected({ ...withEvents, status: "CONNECTING" }),
+    ].map((e) => deriveConnectionView(e, NOW).monitoringLabel);
+    for (const label of labels) expect(label).toMatch(/^Not monitoring/);
+  });
+});
+
 describe("connectionSummary (agent list status line)", () => {
   it("never claims more than the evidence: waiting is not connected, and monitoring is active only with recent events", async () => {
     const { connectionSummary } = await import("@/lib/agents/connection-state");

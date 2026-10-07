@@ -32,7 +32,6 @@ export function AdoptionBadge({ stage }: { stage: AdoptionStage }) {
 }
 
 const FLAG_TONE: Record<AttentionFlag, Tone> = {
-  HIGH_RISK: "danger",
   TRUST_DEGRADED: "warning",
   UNUSUAL_BEHAVIOR: "warning",
   OPEN_INCIDENT: "danger",

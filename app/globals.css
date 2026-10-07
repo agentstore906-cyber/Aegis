@@ -12,6 +12,7 @@
 
   --brand: #1d4ed8;
   --brand-foreground: #ffffff;
+  --accent: #1d4ed8;
 
   --success: #16a34a;
   --success-bg: #f0fdf4;
@@ -54,6 +55,7 @@
 
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
+  --color-accent: var(--accent, #5cc8e8);
 
   --color-success: var(--success);
   --color-success-bg: var(--success-bg);
@@ -121,7 +123,7 @@ body {
 /* ---------------------------------------------------------------------------
  * AEGIS CONSOLE THEME
  *
- * The authenticated product is a calm, white workspace. It is applied by REDEFINING the same
+ * The authenticated product is a calm, near-black control room. It is applied by REDEFINING the same
  * semantic tokens the whole UI already uses, scoped to the .aegis-console wrapper in
  * app/(dashboard)/layout.tsx — so marketing, auth and the public demo are untouched and no
  * component hard-codes a color.
@@ -134,59 +136,82 @@ body {
  * Contrast (WCAG AA): body text ~19:1, muted text >= 5.4:1, state colors >= 4.5:1 on their tints.
  * ------------------------------------------------------------------------- */
 .aegis-console {
-  color-scheme: light;
+  color-scheme: dark;
 
-  --background: #ffffff;
-  --surface: #ffffff;
-  --surface-muted: #f7f7f8;
-  --foreground: #0d0d0f;
-  --muted: #656a75;
-  --muted-foreground: #656a75;
-  --border: #ececef;
-  --border-strong: #d8d8de;
+  /* Near-black foundation with a cool undertone; surfaces step up in luminance, never in color. */
+  --background: #07090d;
+  --surface: #0d1117;
+  --surface-muted: #131922;
+  --foreground: #e8edf4;
+  --muted: #8a94a6;
+  --muted-foreground: #8a94a6;
+  --border: #1c2430;
+  --border-strong: #2b3646;
 
-  --brand: #0d0d0f;
-  --brand-foreground: #ffffff;
+  --brand: #e8edf4;
+  --brand-foreground: #07090d;
 
-  --success: #15803d;
-  --success-bg: #f0fdf4;
-  --success-border: #bbf7d0;
+  /* The Aegis accent: a single restrained cyan for the core, links and live lines. Never used for state. */
+  --accent: #5cc8e8;
+  --accent-soft: rgb(92 200 232 / 0.14);
 
-  --warning: #a16207;
-  --warning-bg: #fffbeb;
-  --warning-border: #fde68a;
+  /* State colors, tuned for dark: AA on their own tinted backgrounds. */
+  --success: #4ade80;
+  --success-bg: rgb(74 222 128 / 0.1);
+  --success-border: rgb(74 222 128 / 0.28);
 
-  --danger: #c81e1e;
-  --danger-bg: #fef2f2;
-  --danger-border: #fecaca;
+  --warning: #fbbf24;
+  --warning-bg: rgb(251 191 36 / 0.1);
+  --warning-border: rgb(251 191 36 / 0.28);
 
-  --info: #1d4ed8;
-  --info-bg: #eff6ff;
-  --info-border: #bfdbfe;
+  --danger: #f87171;
+  --danger-bg: rgb(248 113 113 / 0.1);
+  --danger-border: rgb(248 113 113 / 0.3);
 
-  --risk: #c2410c;
-  --risk-bg: #fff7ed;
-  --risk-border: #fed7aa;
+  --info: #7cb4ff;
+  --info-bg: rgb(124 180 255 / 0.1);
+  --info-border: rgb(124 180 255 / 0.28);
 
-  --approval: #6d28d9;
-  --approval-bg: #f5f3ff;
-  --approval-border: #ddd6fe;
+  --risk: #fb923c;
+  --risk-bg: rgb(251 146 60 / 0.1);
+  --risk-border: rgb(251 146 60 / 0.3);
 
-  /* Elevation is whisper-quiet: a hairline, never a glow. */
-  --shadow-sm: 0 1px 2px rgb(13 13 15 / 0.04);
-  --shadow-pop: 0 8px 30px rgb(13 13 15 / 0.12), 0 0 0 1px rgb(13 13 15 / 0.05);
+  --approval: #b79cff;
+  --approval-bg: rgb(183 156 255 / 0.1);
+  --approval-border: rgb(183 156 255 / 0.3);
+
+  /* Elevation is a hairline and a faint inner light, never a loud glow. */
+  --shadow-sm: 0 1px 0 rgb(255 255 255 / 0.03) inset;
+  --shadow-pop: 0 12px 40px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.06);
 
   /* Motion: short, purposeful, and removed by prefers-reduced-motion (rule above). */
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-fast: 120ms;
   --dur-base: 200ms;
 
+  position: relative;
+  isolation: isolate;
   background: var(--background);
   color: var(--foreground);
   font-size: 15px;
   line-height: 1.55;
   letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Depth: one soft radial light and a faint technical grid. Fixed, non-interactive, and beneath all content. */
+.aegis-console::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 38rem at 50% -8%, rgb(92 200 232 / 0.09), transparent 62%),
+    linear-gradient(to right, rgb(255 255 255 / 0.028) 1px, transparent 1px) 0 0 / 56px 56px,
+    linear-gradient(to bottom, rgb(255 255 255 / 0.028) 1px, transparent 1px) 0 0 / 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse 85% 70% at 50% 0%, #000 30%, transparent 100%);
+  mask-image: radial-gradient(ellipse 85% 70% at 50% 0%, #000 30%, transparent 100%);
 }
 
 .aegis-console h1,
@@ -196,7 +221,7 @@ body {
 }
 
 .aegis-console ::selection {
-  background: #dbeafe;
+  background: rgb(92 200 232 / 0.3);
   color: var(--foreground);
 }
 
@@ -255,4 +280,202 @@ body {
 }
 .skip-link:focus {
   top: 0.75rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * CONTROL CENTER MOTION
+ * CSS-only (no animation library, no canvas), switched off by the global prefers-reduced-motion rule.
+ * Motion always means something real: a line flows ONLY while the backend reports events arriving for that
+ * agent; otherwise it is drawn still.
+ * ------------------------------------------------------------------------- */
+@keyframes aegis-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+@keyframes aegis-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+@keyframes aegis-ring {
+  from {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+}
+@keyframes aegis-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes aegis-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes aegis-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.aegis-flow {
+  stroke-dasharray: 3 9;
+  animation: aegis-flow 1.4s linear infinite;
+}
+.aegis-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: aegis-pulse 3.2s ease-in-out infinite;
+}
+.aegis-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: aegis-ring 3.2s ease-out infinite;
+}
+.aegis-sweep {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: aegis-sweep 3.6s linear infinite;
+}
+.aegis-draw {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: aegis-draw 0.7s var(--ease-out, ease-out) 0.15s forwards;
+}
+.aegis-rise {
+  animation: aegis-rise 0.45s var(--ease-out, ease-out) backwards;
+}
+
+/* A node: a quiet panel that lifts a hair on hover/focus. */
+.aegis-node {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.025), transparent 60%), var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color var(--dur-base, 200ms) var(--ease-out, ease-out),
+    transform var(--dur-base, 200ms) var(--ease-out, ease-out);
+}
+.aegis-node:hover,
+.aegis-node:focus-within {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+.aegis-node[data-tone="safe"] {
+  border-top-color: var(--success-border);
+}
+.aegis-node[data-tone="warning"] {
+  border-top-color: var(--warning-border);
+}
+.aegis-node[data-tone="risk"] {
+  border-top-color: var(--risk-border);
+}
+.aegis-node[data-tone="blocked"] {
+  border-top-color: var(--danger-border);
+}
+
+/* Spaced technical caption: always real text. */
+.aegis-eyebrow {
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* Risk gauge: the arc draws from empty to the stored score once, on load. */
+@keyframes aegis-gauge {
+  from {
+    stroke-dashoffset: var(--gauge-from, 276);
+  }
+}
+.aegis-gauge {
+  animation: aegis-gauge 0.9s var(--ease-out, ease-out) 0.1s backwards;
+}
+
+/* ---------------------------------------------------------------------------
+ * AEGIS CONTROL (the home overview)
+ * A hero panel with one soft light, and the Upgrade call to action. Restraint: a single cyan light, a faint violet
+ * counter-light, hairlines and a short lift on hover. Motion is removed by the global prefers-reduced-motion rule.
+ * ------------------------------------------------------------------------- */
+.aegis-hero {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background:
+    radial-gradient(46rem 22rem at 88% -6%, rgb(92 200 232 / 0.11), transparent 62%),
+    radial-gradient(28rem 18rem at -4% 108%, rgb(183 156 255 / 0.06), transparent 66%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.03), transparent 55%), var(--surface);
+  box-shadow: var(--shadow-sm), 0 36px 80px -48px rgb(0 0 0 / 0.9);
+}
+
+.aegis-upgrade {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid rgb(92 200 232 / 0.45);
+  border-radius: 14px;
+  padding: 0.6rem 1rem;
+  color: var(--foreground);
+  background: linear-gradient(135deg, rgb(92 200 232 / 0.22), rgb(183 156 255 / 0.15));
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.05) inset, 0 10px 30px -12px rgb(92 200 232 / 0.55);
+  transition:
+    transform var(--dur-base, 200ms) var(--ease-out, ease-out),
+    box-shadow var(--dur-base, 200ms) var(--ease-out, ease-out),
+    border-color var(--dur-base, 200ms) var(--ease-out, ease-out);
+}
+.aegis-upgrade:hover {
+  transform: translateY(-1px);
+  border-color: rgb(92 200 232 / 0.8);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.07) inset, 0 14px 38px -12px rgb(92 200 232 / 0.75);
+}
+.aegis-upgrade:active {
+  transform: none;
+}
+.aegis-upgrade--compact {
+  gap: 0.4rem;
+  height: 2rem;
+  border-radius: 10px;
+  padding: 0 0.8rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+/* A quick action: a quiet tile that lifts a hair and brightens its border. */
+.aegis-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.8rem 0.9rem;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.02), transparent 70%), var(--surface);
+  transition:
+    border-color var(--dur-base, 200ms) var(--ease-out, ease-out),
+    transform var(--dur-base, 200ms) var(--ease-out, ease-out),
+    background-color var(--dur-base, 200ms) var(--ease-out, ease-out);
+}
+.aegis-action:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
 }

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Bot, Eye, FileWarning, KeyRound, OctagonX, ShieldAlert, ShieldQuestion, Siren, UserX, Waves, Activity, UserCheck } from "lucide-react";
+import { Bot, Eye, FileWarning, KeyRound, OctagonX, ShieldQuestion, Siren, UserX, Waves, Activity, UserCheck } from "lucide-react";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { canViewSecurityAlerts } from "@/lib/security/authorization";
@@ -61,13 +61,12 @@ export default async function ControlPlanePage({ searchParams }: { searchParams:
     <div>
       <PageHeader
         title="Control plane"
-        description={`Every agent in ${organization.name}: who owns it, what it may do, what it is doing, how trusted and risky it is, and whether Aegis is actually in its loop. Counts cover the last ${summary.windowDays} days.`}
+        description={`Every agent in ${organization.name}: who owns it, what it may do, what it is doing, how trusted it is, and whether Aegis is actually in its loop. Counts cover the last ${summary.windowDays} days.`}
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Agents" value={String(summary.total)} icon={Bot} />
         <StatCard label={`Owners (${summary.unowned} agent${summary.unowned === 1 ? "" : "s"} unowned)`} value={String(summary.owners)} icon={UserX} tone={summary.unowned ? "warning" : undefined} />
-        <StatCard label="High risk" value={String(summary.highRisk)} icon={ShieldAlert} tone={summary.highRisk ? "danger" : undefined} />
         <StatCard label="Behaving unusually" value={String(summary.unusualBehavior)} icon={Waves} tone={summary.unusualBehavior ? "warning" : undefined} />
         <StatCard label="Stopped or paused" value={String(summary.stoppedOrPaused)} icon={OctagonX} />
         <StatCard label="Waiting on approval" value={String(summary.needingApproval)} icon={UserCheck} tone={summary.needingApproval ? "warning" : undefined} />
@@ -81,7 +80,6 @@ export default async function ControlPlanePage({ searchParams }: { searchParams:
       <p className="mt-2 text-xs text-muted-foreground">
         Every tile is a count of stored rows.{" "}
         {[
-          ["high risk", "HIGH_RISK"],
           ["unusual", "UNUSUAL_BEHAVIOR"],
           ["needs approval", "PENDING_APPROVAL"],
           ["incidents", "OPEN_INCIDENT"],

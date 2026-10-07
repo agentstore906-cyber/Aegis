@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { AgentStatus, Environment, PolicyDecision, RiskLevel, TrustState } from "@prisma/client";
+import type { AgentStatus, Environment, PolicyDecision, TrustState } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { getEnforcementCoverage, type EnforcementCoverage } from "@/lib/control/coverage";
@@ -39,7 +39,6 @@ export type InventoryAgent = {
   team: string | null;
   environment: Environment;
   status: AgentStatus;
-  configuredRiskLevel: RiskLevel;
   framework: string | null;
   model: string;
   createdAt: Date;
@@ -71,7 +70,6 @@ export type InventorySummary = {
   unowned: number;
   /** ACTIVE agents with no permission granted: Aegis default-denies everything they ask. */
   nothingGranted: number;
-  highRisk: number;
   unusualBehavior: number;
   stoppedOrPaused: number;
   needingApproval: number;
@@ -116,7 +114,6 @@ async function buildRows(
     owner: string;
     environment: Environment;
     status: AgentStatus;
-    riskLevel: RiskLevel;
     framework: string | null;
     modelName: string;
     createdAt: Date;
@@ -188,7 +185,6 @@ async function buildRows(
       team: a.team?.name ?? null,
       environment: a.environment,
       status: a.status,
-      configuredRiskLevel: a.riskLevel,
       framework: a.framework,
       model: a.modelName,
       createdAt: a.createdAt,
@@ -197,7 +193,6 @@ async function buildRows(
       posture,
       adoption: adoptionStage({ activityEvents: activityEvents7d, decisionRequests }),
       attention: attentionFlags({
-        configuredRiskLevel: a.riskLevel,
         trustState: a.trustState?.state ?? null,
         deviations7d: deviationsBy.get(a.id) ?? 0,
         openIncidents: incidentsBy.get(a.id) ?? 0,
@@ -229,7 +224,6 @@ const AGENT_SELECT = {
   owner: true,
   environment: true,
   status: true,
-  riskLevel: true,
   framework: true,
   modelName: true,
   createdAt: true,
@@ -256,7 +250,6 @@ export function summarize(rows: InventoryAgent[]): InventorySummary {
     owners: new Set(rows.filter((a) => !isUnowned(a.owner)).map((a) => a.owner.trim().toLowerCase())).size,
     unowned: rows.filter((a) => has(a, "NO_OWNER")).length,
     nothingGranted: rows.filter((a) => a.posture === "DISCOVERED").length,
-    highRisk: rows.filter((a) => has(a, "HIGH_RISK")).length,
     unusualBehavior: rows.filter((a) => has(a, "UNUSUAL_BEHAVIOR")).length,
     stoppedOrPaused: rows.filter((a) => a.status === "STOPPED" || a.status === "PAUSED").length,
     needingApproval: rows.filter((a) => has(a, "PENDING_APPROVAL")).length,

@@ -31,11 +31,11 @@ export function LogoMark({
   );
 }
 
-export function Logo({ className, markClassName }: { className?: string; markClassName?: string }) {
+export function Logo({ className, markClassName, spaced }: { className?: string; markClassName?: string; /** Letter-spaced capitals, for the console wordmark. */ spaced?: boolean }) {
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
       <LogoMark className={cn("size-6", markClassName)} />
-      <span className="text-[15px] font-semibold tracking-tight text-foreground">Aegis</span>
+      <span className={cn("font-semibold text-foreground", spaced ? "text-[13px] uppercase tracking-[0.24em]" : "text-[15px] tracking-tight")}>Aegis</span>
     </span>
   );
 }

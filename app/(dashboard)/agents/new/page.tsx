@@ -27,7 +27,7 @@ export default async function NewAgentPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader title="Connect your AI agent" description="Connect your agent to Aegis in under 60 seconds." />
+      <PageHeader title="Connect your AI agent" description="Give Aegis your agent's endpoint. Aegis connects to it and verifies it." />
       {plan.agentLimit !== null && (
         <div className="mb-4">
           {atLimit ? (

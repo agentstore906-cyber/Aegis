@@ -1,56 +1,67 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
+import { CheckCircle2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/field";
-import { connectAgentAction } from "@/lib/agents/connect-actions";
+import { connectEndpointAgentAction } from "@/lib/agents/connect-actions";
 
-import { AgentDetected } from "./connection/agent-detected";
-import { ConnectionCredential } from "./connection/connection-credential";
 import { ConnectionError } from "./connection/connection-error";
-import { ConnectionInstructions } from "./connection/connection-instructions";
-import { HandshakeState } from "./connection/handshake-state";
-import { useConnectionStatus } from "./connection/use-connection-status";
 
 type Environment = "PRODUCTION" | "STAGING" | "DEVELOPMENT";
 
+type Failure = { code: string; error: string };
+type Connected = { agentSlug: string; agentName: string; verifiedAtIso: string; reconnected: boolean };
+
+/** What the backend actually determined for a failure code; nothing here is a guess. */
+const FAILURE_HINTS: Record<string, string[]> = {
+  UNREACHABLE: ["Check the URL and port, and that the agent is running and reachable from the internet."],
+  TIMEOUT: ["The agent must answer within a few seconds."],
+  TLS_ERROR: ["The endpoint needs a valid HTTPS certificate for its host name."],
+  UNSAFE_URL: ["Use the agent's public HTTPS endpoint. Aegis does not connect to private or internal addresses."],
+  AUTH_REJECTED: ["Enter the same shared secret that is configured in the agent."],
+  BAD_PROOF: ["Enter the same shared secret that is configured in the agent."],
+  NOT_AGENT: ["The URL must be the agent's aegis-agent/1 endpoint, not a website or another API."],
+  REDIRECTED: ["Enter the final URL, without a redirect."],
+};
+
 /**
- * Connect a REAL agent, in two screens: name it, then run it. Aegis creates the identity and a credential that
- * works only for that agent in this organization; the customer never sees or types an identifier.
- *
- * Nothing here creates a demo agent, and nothing here declares success: the second screen polls the backend and
- * switches to "connected" only when it reports that a request authenticated with this agent's own credential
- * has reached Aegis.
+ * Connect a REAL external agent. Aegis connects to it: you give the agent's endpoint and the shared secret, Aegis makes
+ * a signed request, and the agent must prove it holds the secret. Only then does anything exist in Aegis — a failed
+ * attempt creates nothing, and nothing here ever says "connected" before the backend has verified the agent.
  */
 export function AgentConnectionWizard({ atLimit }: { atLimit: boolean }) {
-  const [name, setName] = useState("");
+  const [endpointUrl, setEndpointUrl] = useState("");
+  const [secret, setSecret] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [environment, setEnvironment] = useState<Environment>("PRODUCTION");
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ slug: string; name: string; secret: string | null; keyLimitReached: boolean } | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [connected, setConnected] = useState<Connected | null>(null);
 
-  const { snapshot, problem, checkedAt, recheck } = useConnectionStatus(created?.slug ?? null, {
-    stopWhen: (s) => s.view.state === "CONNECTED" && s.eventsObserved > 0,
-  });
-  const connected = snapshot?.view.state === "CONNECTED";
-  const validName = name.trim().length >= 2;
+  const valid = endpointUrl.trim().length >= 8 && secret.length >= 16;
 
-  function create() {
-    if (!validName || pending) return;
-    setError(null);
+  function connect() {
+    if (!valid || pending) return;
+    setFailure(null);
     startTransition(async () => {
-      const result = await connectAgentAction({ connectorType: "CUSTOM_SDK", agentName: name.trim(), environment });
+      const result = await connectEndpointAgentAction({
+        endpointUrl: endpointUrl.trim(),
+        secret,
+        displayName: displayName.trim() || undefined,
+        environment,
+      });
       if (!result.ok) {
-        setError("error" in result ? result.error : "Aegis needs a choice before it can continue.");
+        setFailure({ code: result.code, error: result.error });
         return;
       }
-      setCreated({ slug: result.agentSlug, name: result.agentName, secret: result.apiKeyRaw ?? null, keyLimitReached: Boolean(result.apiKeyLimitReached) });
+      setSecret(""); // the secret is not kept in the page once Aegis has stored it
+      setConnected({ agentSlug: result.agentSlug, agentName: result.agentName, verifiedAtIso: result.verifiedAtIso, reconnected: result.reconnected });
     });
   }
 
-  if (atLimit && !created) {
+  if (atLimit && !connected) {
     return (
       <div className="rounded-xl border border-border bg-surface p-6">
         <p className="text-sm text-muted-foreground">You&rsquo;re at your plan&rsquo;s agent limit. Upgrade to connect another agent.</p>
@@ -58,26 +69,59 @@ export function AgentConnectionWizard({ atLimit }: { atLimit: boolean }) {
     );
   }
 
+  if (connected) {
+    return (
+      <div className="aegis-node aegis-enter px-5 py-9 text-center sm:px-8">
+        <CheckCircle2 className="mx-auto size-10 text-success" aria-hidden="true" />
+        <h2 className="mt-4 text-2xl font-semibold tracking-tight text-foreground">Connected</h2>
+        <p className="mt-2 text-lg font-medium text-foreground">{connected.agentName}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Aegis connected to your agent and verified it
+          <time dateTime={connected.verifiedAtIso}> · {new Date(connected.verifiedAtIso).toLocaleString()}</time>
+        </p>
+        <div className="mt-7 flex flex-col items-center justify-center gap-2.5 sm:flex-row">
+          <ButtonLink href={`/risk-scan?agent=${encodeURIComponent(connected.agentSlug)}#scan`}>Scan Agent</ButtonLink>
+          <ButtonLink href={`/agents/${connected.agentSlug}`} variant="secondary">
+            View agent
+          </ButtonLink>
+          <ButtonLink href="/agents/new" variant="ghost">
+            Connect another agent
+          </ButtonLink>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-xl border border-border bg-surface px-6 py-8">
-      {!created && (
-        <form
-          className="aegis-enter space-y-5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            create();
-          }}
-        >
-          <div className="text-center">
-            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Connect your agent</h2>
-          </div>
-          <div>
-            <Label htmlFor="agent-name">Agent name</Label>
-            <Input id="agent-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Customer Support Agent" maxLength={80} autoFocus />
-          </div>
-          <details className="group text-sm">
-            <summary className="focus-ring inline-block cursor-pointer list-none rounded-sm text-xs font-medium text-muted-foreground hover:text-foreground">Advanced options</summary>
-            <div className="mt-3">
+    <div className="aegis-node px-5 py-7 sm:px-8 sm:py-9">
+      <form
+        className="aegis-enter space-y-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          connect();
+        }}
+      >
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">Connect your agent</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Aegis connects to your agent and verifies it before anything is added.</p>
+        </div>
+        <div>
+          <Label htmlFor="agent-endpoint">Agent endpoint URL</Label>
+          <Input id="agent-endpoint" value={endpointUrl} onChange={(e) => setEndpointUrl(e.target.value)} placeholder="https://your-agent.example.com/aegis" inputMode="url" autoComplete="off" maxLength={300} autoFocus />
+        </div>
+        <div>
+          <Label htmlFor="agent-secret">Shared secret</Label>
+          <Input id="agent-secret" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="off" maxLength={200} />
+          <p className="mt-1.5 text-xs text-muted-foreground">The secret your agent uses to verify Aegis (16+ characters). Aegis stores it encrypted and never shows it again.</p>
+        </div>
+        <details className="group text-sm">
+          <summary className="focus-ring inline-block cursor-pointer list-none rounded-sm text-xs font-medium text-muted-foreground hover:text-foreground">Advanced options</summary>
+          <div className="mt-3 space-y-4">
+            <div>
+              <Label htmlFor="agent-display-name">Display name</Label>
+              <Input id="agent-display-name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Defaults to the name your agent reports" maxLength={80} />
+            </div>
+            <div>
               <Label htmlFor="agent-environment">Environment</Label>
               <Select id="agent-environment" value={environment} onChange={(e) => setEnvironment(e.target.value as Environment)}>
                 <option value="PRODUCTION">Production</option>
@@ -85,61 +129,16 @@ export function AgentConnectionWizard({ atLimit }: { atLimit: boolean }) {
                 <option value="DEVELOPMENT">Development</option>
               </Select>
             </div>
-          </details>
-          {error && <ConnectionError title="Could not connect the agent" message={error} onRetry={create} />}
-          <Button type="submit" size="lg" disabled={!validName || pending} className="w-full">
-            {pending ? "Setting up…" : "Continue"}
-          </Button>
-          <p className="text-center text-xs text-muted-foreground">Nothing is connected until your agent actually reaches Aegis.</p>
-        </form>
-      )}
-
-      {created && (
-        <div className="aegis-enter space-y-6">
-          {connected && snapshot ? (
-            <AgentDetected snapshot={snapshot} />
-          ) : (
-            <>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">Your agent is ready</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Agent: <span className="font-medium text-foreground">{created.name}</span>
-                </p>
-              </div>
-
-              {created.secret ? (
-                <>
-                  <ConnectionCredential secret={created.secret} />
-                  <ConnectionInstructions secret={created.secret} />
-                </>
-              ) : (
-                <ConnectionError
-                  title="No credential was issued"
-                  message={
-                    created.keyLimitReached
-                      ? "Your plan's API key limit is reached, so Aegis could not issue a credential for this agent."
-                      : "Aegis could not issue a credential for this agent."
-                  }
-                  reasons={created.keyLimitReached ? ["Revoke an unused key under Developers › API keys, then issue a credential from the agent page."] : undefined}
-                />
-              )}
-
-              {snapshot && (snapshot.view.state === "REVOKED" || snapshot.view.state === "ERROR") ? (
-                <ConnectionError title={snapshot.view.stateLabel} message={snapshot.view.reason ?? snapshot.view.detail} onRetry={() => void recheck()} />
-              ) : (
-                <HandshakeState snapshot={snapshot} problem={problem} checkedAt={checkedAt} />
-              )}
-
-              <p className="text-xs text-muted-foreground">
-                You can leave this page. The agent stays in Aegis as <em>waiting</em> until it connects.{" "}
-                <Link href={`/agents/${created.slug}`} className="underline">
-                  Open the agent page
-                </Link>
-              </p>
-            </>
-          )}
-        </div>
-      )}
+          </div>
+        </details>
+        {failure && (
+          <ConnectionError title="Aegis couldn't connect to your agent" message={failure.error} reasons={FAILURE_HINTS[failure.code]} onRetry={valid && !pending ? connect : undefined} />
+        )}
+        <Button type="submit" size="lg" disabled={!valid || pending} className="w-full">
+          {pending ? "Connecting to your agent…" : "Connect Agent"}
+        </Button>
+        <p className="text-center text-xs text-muted-foreground">Your agent must expose an Aegis endpoint (aegis-agent/1). Nothing is added to Aegis unless the agent answers.</p>
+      </form>
     </div>
   );
 }

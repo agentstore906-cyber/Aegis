@@ -1,4 +1,4 @@
-import type { AgentStatus, Environment, RiskLevel, TrustState } from "@prisma/client";
+import type { AgentStatus, Environment, TrustState } from "@prisma/client";
 
 import type { IdentityAssurance } from "@/lib/control/identity";
 
@@ -68,7 +68,6 @@ export function adoptionStage(i: Pick<PostureInput, "activityEvents" | "decision
 }
 
 export type AttentionFlag =
-  | "HIGH_RISK"
   | "TRUST_DEGRADED"
   | "UNUSUAL_BEHAVIOR"
   | "OPEN_INCIDENT"
@@ -79,7 +78,6 @@ export type AttentionFlag =
   | "NO_OWNER";
 
 export const ATTENTION_FLAG_LABEL: Record<AttentionFlag, string> = {
-  HIGH_RISK: "High risk",
   TRUST_DEGRADED: "Trust degraded",
   UNUSUAL_BEHAVIOR: "Unusual behavior",
   OPEN_INCIDENT: "Open incident",
@@ -95,7 +93,6 @@ const UNASSIGNED_OWNERS = new Set(["", "api", "unknown", "unassigned", "none", "
 export const isUnowned = (owner: string) => UNASSIGNED_OWNERS.has(owner.trim().toLowerCase());
 
 export type AttentionInput = {
-  configuredRiskLevel: RiskLevel;
   trustState: TrustState | null;
   deviations7d: number;
   openIncidents: number;
@@ -111,7 +108,6 @@ export type AttentionInput = {
 
 export function attentionFlags(i: AttentionInput): AttentionFlag[] {
   const flags: AttentionFlag[] = [];
-  if (i.configuredRiskLevel === "HIGH" || i.configuredRiskLevel === "CRITICAL" || i.trustState === "HIGH_RISK" || i.trustState === "RESTRICTED") flags.push("HIGH_RISK");
   if (i.trustState === "DEGRADED" || i.trustState === "HIGH_RISK" || i.trustState === "RESTRICTED") flags.push("TRUST_DEGRADED");
   if (i.deviations7d > 0) flags.push("UNUSUAL_BEHAVIOR");
   if (i.openIncidents > 0) flags.push("OPEN_INCIDENT");

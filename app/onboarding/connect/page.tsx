@@ -62,7 +62,7 @@ export default async function OnboardingConnectPage() {
         </div>
 
         <div className="mt-6 text-center">
-          <ButtonLink href="/overview" variant="ghost" size="sm">
+          <ButtonLink href="/agents" variant="ghost" size="sm">
             Skip — go to dashboard
           </ButtonLink>
         </div>

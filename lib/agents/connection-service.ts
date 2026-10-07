@@ -95,6 +95,31 @@ export type ConnectProviderAgentResult =
 
 export async function connectProviderAgent(input: ConnectProviderAgentInput): Promise<ConnectProviderAgentResult> {
   const connector = getConnector(input.connectorType);
+
+  // Retrying "Connect" for an agent that has not made contact yet must not mint a second identity — and must not be
+  // judged against the plan's agent limit, because no new agent would be created. A pending record is only a
+  // placeholder until the real agent authenticates, so reuse it and issue a fresh credential for it (the unused one
+  // is revoked by the reconnect). This runs BEFORE the new-agent entitlement check on purpose.
+  if (input.connectorType === "CUSTOM_SDK") {
+    const requestedName = input.agentName?.trim();
+    if (requestedName && requestedName.length >= 2) {
+      const pending = await prisma.agent.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          name: { equals: requestedName, mode: "insensitive" },
+          connection: { is: { connectorType: "CUSTOM_SDK", status: "CONNECTING", firstHandshakeAt: null } },
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, slug: true, name: true },
+      });
+      if (pending) {
+        const reissued = await reconnectAgentConnection(input.organizationId, input.userId, pending.slug);
+        if (!reissued.ok) return { ok: false, error: reissued.error };
+        return { ok: true, agentId: pending.id, agentSlug: pending.slug, agentName: pending.name, apiKeyRaw: reissued.apiKeyRaw };
+      }
+    }
+  }
+
   // Early, friendly check before any provider round trip. Not the
   // authoritative one — that's re-done under a lock inside the creating
   // transaction below (lib/agents/creation-guard.ts).
@@ -296,6 +321,10 @@ type StoredCredentialFields = {
  * used. The re-encryption only replaces the row if it still holds exactly
  * the ciphertext we decrypted (no clobbering a concurrent reconnect).
  */
+export async function readConnectionSecret(connection: StoredCredentialFields): Promise<string | undefined> {
+  return decryptStoredCredential(connection);
+}
+
 async function decryptStoredCredential(connection: StoredCredentialFields): Promise<string | undefined> {
   if (!connection.credentialCiphertext || !connection.credentialIv || !connection.credentialAuthTag) return undefined;
   const decrypted = decryptCredentialWithKeyInfo({
@@ -351,6 +380,7 @@ export async function checkConnectionHealth(organizationId: string, agentSlug: s
     credential,
     agentId: agent.id,
     externalAgentId: connection.externalAgentId,
+    endpointUrl: connection.endpointUrl,
   });
 
   const newStatus = result.ok ? "CONNECTED" : "RECONNECT_REQUIRED";
@@ -361,6 +391,8 @@ export async function checkConnectionHealth(organizationId: string, agentSlug: s
       lastHealthCheckAt: new Date(),
       lastHealthError: result.ok ? null : result.error,
       lastVerifiedAt: result.ok && credential ? new Date() : connection.lastVerifiedAt,
+      // An endpoint connection's contact IS the verification Aegis just performed.
+      ...(result.ok && connection.connectorType === "AEGIS_ENDPOINT" ? { lastSeenAt: new Date() } : {}),
     },
   });
 
@@ -387,11 +419,11 @@ export async function reconnectAgentConnection(
     const trimmed = credential?.trim();
     if (!trimmed) return { ok: false, error: "Enter your API key to reconnect." };
 
-    const verified = await connector.verifyCredential({ organizationId, credential: trimmed });
+    const verified = await connector.verifyCredential({ organizationId, credential: trimmed, endpointUrl: connection.endpointUrl });
     if (!verified.ok) return { ok: false, error: verified.error };
 
     if (connection.externalAgentId) {
-      const stillOwned = await connector.getDiscoveredAgent({ organizationId, credential: trimmed }, connection.externalAgentId);
+      const stillOwned = await connector.getDiscoveredAgent({ organizationId, credential: trimmed, endpointUrl: connection.endpointUrl }, connection.externalAgentId);
       if (!stillOwned) {
         return { ok: false, error: "This key doesn't have access to the originally connected agent." };
       }
@@ -409,6 +441,7 @@ export async function reconnectAgentConnection(
           credentialKeyId: encrypted.keyId,
           externalAccountLabel: maskCredential(trimmed),
           lastVerifiedAt: new Date(),
+          ...(connection.connectorType === "AEGIS_ENDPOINT" ? { lastSeenAt: new Date() } : {}),
           lastHealthError: null,
           disconnectedAt: null,
         },

@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  LayoutDashboard,
   Bot,
   Activity,
   CheckCircle2,
@@ -55,8 +54,7 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "core",
     label: "",
     items: [
-      { label: "Command center", href: "/overview", icon: LayoutDashboard, status: "active" },
-      { label: "Agents", href: "/agents", icon: Bot, status: "active" },
+      { label: "Aegis Control", href: "/agents", icon: Bot, status: "active" },
       { label: "Risk", href: "/risk-control", icon: Gauge, status: "active", capability: "view_security" },
       { label: "Policies", href: "/policies", icon: ShieldCheck, status: "active" },
       { label: "Approvals", href: "/approvals", icon: CheckCircle2, status: "active", count: "pendingApprovals", countLabel: "pending approvals" },
@@ -72,7 +70,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Activity", href: "/activity", icon: Activity, status: "active" },
       { label: "Security alerts", href: "/security", icon: ShieldAlert, status: "active", capability: "view_security", count: "openAlerts", countLabel: "open high or critical alerts" },
       { label: "Control plane", href: "/control", icon: Network, status: "active", capability: "view_security" },
-      { label: "Free AI Agent Risk Scanner", href: "/risk-scan", icon: ScanSearch, status: "active", capability: "view_security" },
+      { label: "Free Risk Scanner", href: "/risk-scan", icon: ScanSearch, status: "active", capability: "view_security" },
       { label: "Costs", href: "/costs", icon: DollarSign, status: "active" },
       { label: "Ask Aegis", href: "/ask", icon: Sparkles, status: "active" },
       { label: "Developers", href: "/developers", icon: Terminal, status: "active" },

@@ -1,22 +1,21 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
+/** Shaped like Aegis Control: title bar, hero, figure rail, then agent cards. No content is implied. */
 export default function AgentsLoading() {
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between">
-        <Skeleton className="h-7 w-40" />
-        <Skeleton className="h-9 w-32" />
+    <div className="mx-auto w-full max-w-6xl pb-12" role="status" aria-label="Loading Aegis Control">
+      <div className="flex flex-col gap-4 pt-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-36" />
+          <Skeleton className="h-4 w-64 max-w-full" />
+        </div>
+        <Skeleton className="h-14 w-full rounded-2xl sm:w-72" />
       </div>
-      <Skeleton className="mb-4 h-9 w-full max-w-md" />
-      <div className="overflow-hidden rounded-lg border border-border bg-surface">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-4 border-b border-border px-4 py-3.5 last:border-0">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-4 w-16" />
-          </div>
+      <Skeleton className="mt-5 h-72 w-full rounded-[28px]" />
+      <Skeleton className="mt-6 h-20 w-full rounded-2xl" />
+      <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-40 rounded-2xl" />
         ))}
       </div>
     </div>

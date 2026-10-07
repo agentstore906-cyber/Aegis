@@ -161,6 +161,11 @@ describe("dashboard queries are tenant-scoped", () => {
     const mine = await scan(null, {}, { userId: user.id, organizationId: org.id });
     const foreignAgent = await prisma.agent.create({ data: { organizationId: otherOrg.id, name: "F", slug: "f", owner: "T", modelProvider: "x", modelName: "y" } });
     expect(await linkScanToAgent(org.id, mine.id, foreignAgent.id)).toBe(false);
+    // A record that has never made contact is not a real agent yet: it cannot be the subject of a scan link.
+    expect(await linkScanToAgent(org.id, mine.id, agent.id)).toBe(false);
+    await prisma.agentConnection.create({
+      data: { organizationId: org.id, agentId: agent.id, connectorType: "CUSTOM_SDK", status: "CONNECTED", firstHandshakeAt: new Date(), lastSeenAt: new Date(), capabilities: {} },
+    });
     expect(await linkScanToAgent(org.id, mine.id, agent.id)).toBe(true);
     expect((await prisma.riskScan.findUniqueOrThrow({ where: { id: mine.id } })).connectedAgentId).toBe(agent.id);
     // A different org cannot link someone else's scan.

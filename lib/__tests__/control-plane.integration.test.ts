@@ -330,7 +330,7 @@ describe("organization-wide inventory", () => {
   it("raises each attention flag from the rows that justify it, and only then", () => {
     // The calm agent is owned, behaves like its baseline, has its own key, and ran under its decision. (Real detectors may
     // legitimately open an incident for a fresh agent, so only the flags this evidence must NOT raise are asserted.)
-    for (const flag of ["NO_OWNER", "UNUSUAL_BEHAVIOR", "TRUST_DEGRADED", "HIGH_RISK", "RAN_DESPITE_DECISION", "SHARED_IDENTITY", "BROAD_GRANT"] as const) {
+    for (const flag of ["NO_OWNER", "UNUSUAL_BEHAVIOR", "TRUST_DEGRADED", "RAN_DESPITE_DECISION", "SHARED_IDENTITY", "BROAD_GRANT"] as const) {
       expect(bySlug("protected-one").attention, flag).not.toContain(flag);
     }
     expect(bySlug("unowned-one").attention).toEqual(["NO_OWNER"]);
@@ -340,7 +340,8 @@ describe("organization-wide inventory", () => {
     expect(bySlug("degraded-one").attention).toEqual(["TRUST_DEGRADED"]);
     expect(bySlug("unusual-one").attention).toContain("UNUSUAL_BEHAVIOR");
     expect(bySlug("despite-one").attention).toContain("RAN_DESPITE_DECISION");
-    expect(bySlug("risky-config").attention).toContain("HIGH_RISK");
+    // An owner-configured risk level is configuration, not evidence: it raises no attention flag, and the flag no longer exists.
+    expect(bySlug("risky-config").attention).not.toContain("HIGH_RISK");
     // The two org-wide-key agents that report activity are flagged as shared-key identities; ones with no activity are not.
     expect(bySlug("observed-one").attention).toContain("SHARED_IDENTITY");
     expect(bySlug("unowned-one").attention).not.toContain("SHARED_IDENTITY");
@@ -377,20 +378,18 @@ describe("organization-wide inventory", () => {
     const id = (globalThis as { __invOrg?: string }).__invOrg!;
     const since = new Date(Date.now() - 7 * DAY);
     const distinct = (rows: { agentId: string }[]) => new Set(rows.map((r) => r.agentId)).size;
-    const [pending, incidents, deviations, risky, degraded] = await Promise.all([
+    const [pending, incidents, deviations] = await Promise.all([
+
       prisma.approvalRequest.findMany({ where: { organizationId: id, status: "PENDING" }, select: { agentId: true } }),
       prisma.incident.findMany({ where: { organizationId: id, status: { in: ["OPEN", "INVESTIGATING"] } }, select: { agentId: true } }),
       prisma.behavioralDeviation.findMany({ where: { organizationId: id, lastSeenAt: { gte: since } }, select: { agentId: true } }),
-      prisma.agent.findMany({ where: { organizationId: id, riskLevel: { in: ["HIGH", "CRITICAL"] } }, select: { id: true } }),
-      prisma.agentTrustState.findMany({ where: { organizationId: id, state: { in: ["HIGH_RISK", "RESTRICTED"] } }, select: { agentId: true } }),
     ]);
     expect(s.needingApproval).toBe(distinct(pending));
     expect(s.withOpenIncidents).toBe(distinct(incidents));
     expect(s.withOpenIncidents).toBeGreaterThanOrEqual(1); // at least the explicit alert
     expect(s.unusualBehavior).toBe(distinct(deviations));
     expect(s.unusualBehavior).toBeGreaterThanOrEqual(1);
-    expect(s.highRisk).toBe(new Set([...risky.map((r) => r.id), ...degraded.map((r) => r.agentId)]).size);
-    expect(s.highRisk).toBeGreaterThanOrEqual(1);
+    expect("highRisk" in s).toBe(false); // no derived high-risk tile
     expect(s.byPosture.PROTECTED).toBeGreaterThanOrEqual(1);
     expect(inv.truncated).toBe(false);
   });
@@ -631,10 +630,10 @@ describe("admin API: inventory", () => {
   });
 
   it("validates filters and paging instead of ignoring them", async () => {
-    for (const q of ["status=bogus", "environment=moon", "posture=nope", "flag=x", "pageSize=1000", "pageSize=0", "page=0"]) {
+    for (const q of ["status=bogus", "environment=moon", "posture=nope", "flag=x", "pageSize=1000", "pageSize=0", "page=0", "flag=HIGH_RISK"]) {
       expect((await call(inventoryHandler, `http://localhost/api/v1/agents?${q}`, adminKey, { method: "GET" })).status, q).toBe(400);
     }
-    expect((await call(inventoryHandler, "http://localhost/api/v1/agents?posture=PROTECTED&flag=HIGH_RISK", adminKey, { method: "GET" })).status).toBe(200);
+    expect((await call(inventoryHandler, "http://localhost/api/v1/agents?posture=PROTECTED&flag=TRUST_DEGRADED", adminKey, { method: "GET" })).status).toBe(200);
   });
 
   it("a key bound to one agent is refused; another organization's admin key sees only its own agents", async () => {

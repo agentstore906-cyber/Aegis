@@ -50,8 +50,10 @@ export type ConnectorContext = {
   credential?: string;
   /** The agent's own database id — CUSTOM_SDK's health check reads Agent/ApiKey state by this. */
   agentId?: string;
-  /** Provider-side resource id (e.g. an OpenAI assistant id), when known. */
+  /** Provider-side resource id (e.g. an OpenAI assistant id), when known. For AEGIS_ENDPOINT, the pinned id the agent declared. */
   externalAgentId?: string | null;
+  /** AEGIS_ENDPOINT only: the endpoint Aegis connects to. */
+  endpointUrl?: string | null;
 };
 
 export type VerifyResult = { ok: true; accountLabel: string } | { ok: false; error: string };

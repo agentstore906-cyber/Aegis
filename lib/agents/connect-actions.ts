@@ -16,8 +16,10 @@ import {
 import {
   discoverConnectionSchema,
   connectAgentSchema,
+  connectEndpointSchema,
   reconnectAgentSchema,
 } from "@/lib/validation/connect-agent";
+import { connectEndpointAgent } from "@/lib/agents/endpoint-connection";
 import { trackEvent } from "@/lib/analytics/track";
 
 const PERMISSION_ERROR = "You don't have permission to connect agents.";
@@ -63,6 +65,39 @@ export async function connectAgentAction(input: unknown) {
   }
 
   return result;
+}
+
+/**
+ * Connect an external agent: Aegis connects TO it and verifies it before anything is created. The shared secret travels
+ * browser → this action once (over the app's own TLS), is used for the verification, and is stored encrypted; it is
+ * never returned to the browser. The caller never names an agent: the organization comes from the session and the
+ * agent identifies itself to Aegis.
+ */
+export async function connectEndpointAgentAction(input: unknown) {
+  const { organization, user, role } = await requireActiveOrganization();
+  if (!canManageAgents(role)) return { ok: false as const, code: "FORBIDDEN" as const, error: PERMISSION_ERROR };
+
+  const parsed = connectEndpointSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false as const, code: "INVALID" as const, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const result = await connectEndpointAgent({
+    organizationId: organization.id,
+    userId: user.id,
+    ownerLabel: user.name?.trim() || user.email,
+    endpointUrl: parsed.data.endpointUrl,
+    secret: parsed.data.secret,
+    displayName: parsed.data.displayName,
+    environment: parsed.data.environment,
+  });
+  if (!result.ok) return { ok: false as const, code: result.code, error: result.error };
+
+  trackEvent("agent_connected", { organizationId: organization.id, agentId: result.agentId });
+  await attributeToScanner(organization.id, "agent_connected");
+  revalidatePath("/agents");
+  revalidatePath("/risk-scan");
+  return { ok: true as const, agentSlug: result.agentSlug, agentName: result.agentName, verifiedAtIso: result.verifiedAt.toISOString(), reconnected: result.reconnected };
 }
 
 /** On-demand connection health check — see connection-service.ts for why there's no background polling. */

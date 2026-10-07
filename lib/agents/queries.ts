@@ -8,11 +8,12 @@ import type { AgentFiltersInput } from "@/lib/validation/agent";
 
 const PAGE_SIZE = 20;
 
-export async function listAgents(organizationId: string, filters: AgentFiltersInput) {
+export async function listAgents(organizationId: string, filters: AgentFiltersInput, options: { excludeArchived?: boolean } = {}) {
   const where: Prisma.AgentWhereInput = {
     organizationId,
+    // Retired agents are hidden unless the caller asks for that status explicitly.
+    ...(options.excludeArchived && !filters.status ? { status: { not: "ARCHIVED" } } : {}),
     ...(filters.status ? { status: filters.status } : {}),
-    ...(filters.riskLevel ? { riskLevel: filters.riskLevel } : {}),
     ...(filters.q
       ? {
           OR: [
@@ -117,6 +118,15 @@ export async function getAgentsNeedingAttention(organizationId: string, limit = 
     orderBy: { updatedAt: "desc" },
     take: limit,
   });
+}
+
+/**
+ * The ids of the organization's non-retired agents, capped. Used for organization-wide figures, so a count that would
+ * need more than `limit` agents is reported as unavailable by the caller rather than silently truncated.
+ */
+export async function listLiveAgentIds(organizationId: string, limit = 1000): Promise<{ ids: string[]; truncated: boolean }> {
+  const rows = await prisma.agent.findMany({ where: { organizationId, status: { not: "ARCHIVED" } }, select: { id: true }, take: limit + 1 });
+  return { ids: rows.slice(0, limit).map((r) => r.id), truncated: rows.length > limit };
 }
 
 /** Used to populate agent-filter dropdowns — bounded so an org with an unusual number of agents can't force an unbounded scan. */

@@ -25,7 +25,7 @@ export function AgentProtectionStatus({ view, className }: { view: View; classNa
       label: "Monitoring",
       value: view.monitoringLabel,
       detail: view.monitoring === "NONE" ? "No activity has been reported yet." : `${view.reportedEventCount} reported event${view.reportedEventCount === 1 ? "" : "s"} received.`,
-      dot: view.monitoring === "RECEIVING" ? "bg-success" : "bg-muted-foreground",
+      dot: view.state === "CONNECTED" && view.monitoring === "RECEIVING" ? "bg-success" : "bg-muted-foreground",
     },
     { label: "Decisions", value: view.protectionLabel, detail: view.protectionDetail, dot: view.protection === "ASKS_FOR_DECISIONS" ? "bg-info" : "bg-muted-foreground" },
   ];

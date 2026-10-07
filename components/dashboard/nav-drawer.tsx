@@ -79,7 +79,7 @@ export function NavDrawer({ role, counts }: { role: MemberRole; counts?: NavCoun
         aria-expanded={open}
         className="focus-ring -ml-2 flex h-9 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-surface-muted"
       >
-        <Logo />
+        <Logo spaced />
         <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
       </button>
 

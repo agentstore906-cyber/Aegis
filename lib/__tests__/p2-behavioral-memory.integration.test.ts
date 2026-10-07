@@ -4,7 +4,7 @@
  * learning behavior, detection through the real ingestion path, APIs,
  * tenant isolation, and historical integrity.
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Agent, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
@@ -20,6 +20,21 @@ import { GET as baselinesGet } from "@/app/api/v1/agents/[slug]/behavior/baselin
 import { GET as deviationsGet } from "@/app/api/v1/agents/[slug]/behavior/deviations/route";
 import { GET as historyGet } from "@/app/api/v1/agents/[slug]/behavior/history/route";
 import { GET as cronGet } from "@/app/api/internal/behavior/refresh/route";
+
+
+// The cron route sweeps every organization by design. Scope the sweeps to this
+// file's own organizations: otherwise the sweep races other test files'
+// fixtures (pre-empting their baselines, hitting orgs torn down mid-run) and
+// its cost grows with the size of the shared test database.
+const cronScope = vi.hoisted(() => ({ organizationIds: [] as string[] }));
+vi.mock("@/lib/behavior/refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/behavior/refresh")>();
+  return { ...actual, refreshStaleBaselines: (o: Parameters<typeof actual.refreshStaleBaselines>[0]) => actual.refreshStaleBaselines({ ...o, organizationIds: cronScope.organizationIds }) };
+});
+vi.mock("@/lib/trust/refresh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/trust/refresh")>();
+  return { ...actual, refreshTrust: (o: Parameters<typeof actual.refreshTrust>[0]) => actual.refreshTrust({ ...o, organizationIds: cronScope.organizationIds }) };
+});
 
 const RUN_ID = `test_p2_${Date.now()}`;
 const DAY = 86_400_000;
@@ -103,6 +118,7 @@ async function seedHistory(agent: Agent, days: number, overrides: Partial<Prisma
 beforeAll(async () => {
   orgA = await prisma.organization.create({ data: { name: "P2 A", slug: `${RUN_ID}-a` } });
   orgB = await prisma.organization.create({ data: { name: "P2 B", slug: `${RUN_ID}-b` } });
+  cronScope.organizationIds = [orgA.id, orgB.id];
   for (const slug of ["established", "volume", "frequency", "evolution", "limited", "fresh", "integrity", "sequence"]) {
     agents[slug] = await makeAgent(orgA.id, `p2-${slug}`);
   }

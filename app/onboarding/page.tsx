@@ -13,7 +13,7 @@ export default async function OnboardingPage() {
   const memberships = await getUserMemberships(user.id);
 
   if (memberships.length > 0) {
-    redirect("/overview");
+    redirect("/agents");
   }
 
   return (

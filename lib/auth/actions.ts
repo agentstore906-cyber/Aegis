@@ -94,7 +94,7 @@ export async function signInAction(
     await signIn("credentials", {
       email,
       password,
-      redirectTo: "/overview",
+      redirectTo: "/agents",
     });
   } catch (error) {
     if (error && typeof error === "object" && "type" in error) {

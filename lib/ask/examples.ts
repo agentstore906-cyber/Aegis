@@ -9,7 +9,7 @@ export const ASK_AEGIS_EXAMPLE_QUESTIONS = [
   "Which agent accessed customer data?",
   "Why did AI costs increase this week?",
   "Which agent is behaving abnormally?",
-  "Show me the highest-risk agent.",
+  "Which agent has the most open alerts?",
   "Which actions were blocked?",
   "Which actions required approval?",
   "Which agents sent external requests?",

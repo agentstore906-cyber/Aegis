@@ -23,7 +23,6 @@ export type UpdateAgentInput = z.infer<typeof updateAgentSchema>;
 export const agentFiltersSchema = z.object({
   q: z.string().trim().max(120).optional(),
   status: z.enum(AGENT_STATUSES).optional(),
-  riskLevel: z.enum(AGENT_RISK_LEVELS).optional(),
   page: z.coerce.number().int().min(1).default(1),
 });
 

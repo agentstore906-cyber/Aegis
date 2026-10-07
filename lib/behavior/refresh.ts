@@ -10,13 +10,14 @@ import { ensureBaseline } from "@/lib/behavior/baseline";
  * the primary mechanism and keeps everything correct without a scheduler;
  * this only pre-computes, so the first request of the day doesn't pay for it.
  * Archived agents are skipped. Each agent is processed independently — one
- * failure never stops the run.
+ * failure never stops the run. Production sweeps every organization;
+ * `organizationIds` narrows the sweep (used by tests so they stay hermetic).
  */
-export async function refreshStaleBaselines(options: { budgetMs: number; limit: number; now?: Date }) {
+export async function refreshStaleBaselines(options: { budgetMs: number; limit: number; now?: Date; organizationIds?: string[] }) {
   const startedAt = Date.now();
   const now = options.now ?? new Date();
   const agents = await prisma.agent.findMany({
-    where: { status: { not: "ARCHIVED" } },
+    where: { status: { not: "ARCHIVED" }, ...(options.organizationIds && { organizationId: { in: options.organizationIds } }) },
     select: { id: true, organizationId: true },
     orderBy: { behaviorState: { lastRefreshedAt: { sort: "asc", nulls: "first" } } },
     take: options.limit,

@@ -4,7 +4,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useRef, useTransition } from "react";
 import { Search } from "lucide-react";
 import { Input, Select } from "@/components/ui/field";
-import { AGENT_RISK_LEVELS, AGENT_STATUSES } from "@/lib/validation/agent";
+import { AGENT_STATUSES } from "@/lib/validation/agent";
 
 export function AgentFilters() {
   const router = useRouter();
@@ -58,20 +58,6 @@ export function AgentFilters() {
         {AGENT_STATUSES.map((status) => (
           <option key={status} value={status}>
             {status.replaceAll("_", " ")}
-          </option>
-        ))}
-      </Select>
-
-      <Select
-        defaultValue={searchParams.get("riskLevel") ?? ""}
-        onChange={(e) => updateParam("riskLevel", e.target.value)}
-        className="sm:w-40"
-        aria-label="Filter by risk"
-      >
-        <option value="">All risk levels</option>
-        {AGENT_RISK_LEVELS.map((risk) => (
-          <option key={risk} value={risk}>
-            {risk.charAt(0) + risk.slice(1).toLowerCase()}
           </option>
         ))}
       </Select>

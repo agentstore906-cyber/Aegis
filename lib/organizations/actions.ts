@@ -366,5 +366,5 @@ export async function acceptInvitationAction(token: string): Promise<AcceptInvit
     maxAge: 60 * 60 * 24 * 365,
   });
 
-  redirect("/overview");
+  redirect("/agents");
 }

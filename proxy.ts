@@ -37,7 +37,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (isAuthPage && isLoggedIn) {
-    return NextResponse.redirect(new URL("/overview", request.nextUrl.origin));
+    return NextResponse.redirect(new URL("/agents", request.nextUrl.origin));
   }
 
   return NextResponse.next();

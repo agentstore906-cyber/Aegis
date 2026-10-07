@@ -77,6 +77,14 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+  // The questionnaire scanner is retired. Old links land on the Free Risk Scanner entry point, never on a score.
+  async redirects() {
+    return [
+      { source: "/scan/:path+", destination: "/scan", permanent: true },
+      { source: "/risk", destination: "/scan", permanent: true },
+      { source: "/risk-scan/:path+", destination: "/risk-scan", permanent: true },
+    ];
+  },
   async headers() {
     return [
       {
