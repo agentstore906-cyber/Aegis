@@ -31,7 +31,7 @@ import { DELETE_KEYWORDS } from "@/lib/security/risk-scoring";
 import type { Finding } from "@/lib/security/types";
 import { filterApplicablePolicies, resolveBestPermission, type MatchingMode } from "@/lib/policies/matcher";
 import { buildDecisionContext } from "@/lib/policies/decision-context";
-import { normalizeKey } from "@/lib/telemetry/normalize";
+import { hasPriorActionHistory, hasPriorNamespaceHistory, hasPriorToolHistory } from "@/lib/security/history";
 import { resolveDecision } from "@/lib/policies/resolver";
 import { listActivePoliciesForEvaluation } from "@/lib/policies/repository";
 import { checkAgentBudgets } from "@/lib/costs/budgets";
@@ -92,31 +92,30 @@ export async function runSecurityDetectors(trigger: SecurityDetectorTrigger): Pr
 async function runDetectorsUnsafe(trigger: SecurityDetectorTrigger): Promise<void> {
   const { organizationId, agent, action, resource, environment, riskLevel, status, traceId, toolName } = trigger;
   const now = Date.now();
-  const toolKey = normalizeKey(toolName);
+  const scope = { organizationId, agentId: agent.id };
 
-  const [priorActionCount, priorNamespaceCount, priorToolCount, blockedCountInWindow, highRiskCountInWindow] =
-    await Promise.all([
-      prisma.activityEvent.count({ where: { organizationId, agentId: agent.id, action } }),
-      countNamespaceHistory(organizationId, agent.id, action),
-      // By normalized key (P1), so "CRM" after "crm" isn't reported as a new tool.
-      toolKey ? prisma.activityEvent.count({ where: { organizationId, agentId: agent.id, toolKey } }) : Promise.resolve(0),
-      prisma.activityEvent.count({
-        where: {
-          organizationId,
-          agentId: agent.id,
-          status: "BLOCKED",
-          timestamp: { gte: new Date(now - BLOCK_SPIKE_WINDOW_MS) },
-        },
-      }),
-      prisma.activityEvent.count({
-        where: {
-          organizationId,
-          agentId: agent.id,
-          riskLevel: { in: ["HIGH", "CRITICAL"] },
-          timestamp: { gte: new Date(now - HIGH_RISK_BURST_WINDOW_MS) },
-        },
-      }),
-    ]);
+  const [priorAction, priorNamespace, priorTool, blockedCountInWindow, highRiskCountInWindow] = await Promise.all([
+    // Retention-safe (events + rollups + earlier alerts): see lib/security/history.ts.
+    hasPriorActionHistory(scope, action),
+    hasPriorNamespaceHistory(scope, action),
+    hasPriorToolHistory(scope, toolName),
+    prisma.activityEvent.count({
+      where: {
+        organizationId,
+        agentId: agent.id,
+        status: "BLOCKED",
+        timestamp: { gte: new Date(now - BLOCK_SPIKE_WINDOW_MS) },
+      },
+    }),
+    prisma.activityEvent.count({
+      where: {
+        organizationId,
+        agentId: agent.id,
+        riskLevel: { in: ["HIGH", "CRITICAL"] },
+        timestamp: { gte: new Date(now - HIGH_RISK_BURST_WINDOW_MS) },
+      },
+    }),
+  ]);
 
   const findings: (Finding | null)[] = [
     detectNewSensitiveAction({
@@ -126,15 +125,15 @@ async function runDetectorsUnsafe(trigger: SecurityDetectorTrigger): Promise<voi
       riskLevel,
       status,
       traceId,
-      hasPriorHistory: priorActionCount > 1,
+      hasPriorHistory: priorAction,
     }),
     detectNewToolUsage({
       agentId: agent.id,
       agentName: agent.name,
       action,
       toolName,
-      hasPriorNamespaceHistory: priorNamespaceCount > 1,
-      hasPriorToolHistory: priorToolCount > 1,
+      hasPriorNamespaceHistory: priorNamespace,
+      hasPriorToolHistory: priorTool,
     }),
     detectBlockSpike({ agentId: agent.id, agentName: agent.name, blockedCountInWindow }),
     detectHighRiskBurst({ agentId: agent.id, agentName: agent.name, highRiskCountInWindow }),
@@ -317,17 +316,4 @@ async function runDetectorsUnsafe(trigger: SecurityDetectorTrigger): Promise<voi
     trailingDailyAverage: trailingCommunications,
   });
   if (communicationFinding) await upsertAlertFinding(organizationId, communicationFinding);
-}
-
-async function countNamespaceHistory(organizationId: string, agentId: string, action: string): Promise<number> {
-  const dotIndex = action.indexOf(".");
-  const namespace = dotIndex === -1 ? action : action.slice(0, dotIndex);
-
-  return prisma.activityEvent.count({
-    where: {
-      organizationId,
-      agentId,
-      action: dotIndex === -1 ? namespace : { startsWith: `${namespace}.` },
-    },
-  });
 }
