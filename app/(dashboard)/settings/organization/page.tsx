@@ -86,6 +86,7 @@ export default async function OrganizationSettingsPage() {
         </CardHeader>
         <CardContent>
           <RetentionSettingsForm
+            planActivityRetentionDays={plan.activityRetentionDays}
             activityRetentionDays={organization.activityRetentionDays}
             auditRetentionDays={organization.auditRetentionDays}
             securityRetentionDays={organization.securityRetentionDays}

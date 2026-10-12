@@ -27,6 +27,7 @@ process.env.PADDLE_STARTUP_PRICE_ID = "pri_startup_test";
 // Imported after env is set — plans.ts resolves price ids at import time.
 const { PLANS } = await import("@/lib/billing/plans");
 const { POST } = await import("@/app/api/webhooks/paddle/route");
+const { retentionEligibility } = await import("@/lib/retention/activity");
 
 function sign(body: string, secret = WEBHOOK_SECRET, ts = Math.floor(Date.now() / 1000)): string {
   const h1 = crypto.createHmac("sha256", secret).update(`${ts}:${body}`, "utf8").digest("hex");
@@ -708,5 +709,76 @@ describe("Step G — pause -> failed payment -> end (M1)", () => {
     expect((await send(subscriptionEventBody("subscription.resumed", { subId: sub, orgId: org.id, status: "active", priceId: "pri_growth_test", occurredAt: minutes(T0, 5) }))).status).toBe(200);
     const row = await load(org.id);
     expect(row).toMatchObject({ plan: "growth", subscriptionStatus: "active", planDowngradedAt: null });
+  });
+});
+
+describe("Step H — legacy paused organization (no stamp) -> failed payment -> end (F1)", () => {
+  const T0 = Date.parse("2026-10-01T00:00:00Z");
+  const DAY = 24 * 3600_000;
+
+  async function legacyPausedThenFailedPayment(tag: string) {
+    const org = await newOrg(tag);
+    const sub = `sub_${RUN_ID}_${tag}`;
+    await send(subscriptionEventBody("subscription.created", { subId: sub, orgId: org.id, priceId: "pri_growth_test", occurredAt: minutes(T0, 0) }));
+    await send(subscriptionEventBody("subscription.paused", { subId: sub, orgId: org.id, status: "paused", priceId: "pri_growth_test", occurredAt: minutes(T0, 1) }));
+    await prisma.organization.update({ where: { id: org.id }, data: { planDowngradedAt: null } }); // paused before the column existed
+    expect(retentionEligibility(await load(org.id), new Date())).toEqual({ eligible: false, reason: "paused_no_anchor" });
+
+    expect((await send(transactionEventBody("transaction.payment_failed", { txnId: `txn_${RUN_ID}_${tag}`, orgId: org.id, subscriptionId: sub, occurredAt: minutes(T0, 2) }))).status).toBe(200);
+    const flipped = await load(org.id);
+    expect(flipped).toMatchObject({ plan: "free", subscriptionStatus: "past_due", planDowngradedAt: null });
+    expect(retentionEligibility(flipped, new Date())).toEqual({ eligible: false, reason: "billing_anomaly" }); // still protected
+    return { org, sub };
+  }
+
+  it("cancelled: gets a stamp, so protection continues as the 14-day cancellation grace, then normal Free retention", async () => {
+    const { org, sub } = await legacyPausedThenFailedPayment("f1cancel");
+    const before = Date.now();
+    expect((await send(subscriptionEventBody("subscription.canceled", { subId: sub, orgId: org.id, status: "canceled", occurredAt: minutes(T0, 5) }))).status).toBe(200);
+    const row = await load(org.id);
+    expect(row.subscriptionStatus).toBe("cancelled");
+    expect(row.planDowngradedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(retentionEligibility(row, new Date())).toEqual({ eligible: false, reason: "downgrade_grace" });
+    expect(retentionEligibility(row, new Date(row.planDowngradedAt!.getTime() + 14 * DAY))).toEqual({ eligible: true });
+  });
+
+  it("expired: same outcome", async () => {
+    const { org, sub } = await legacyPausedThenFailedPayment("f1expire");
+    expect((await send(subscriptionEventBody("subscription.updated", { subId: sub, orgId: org.id, status: "unknown_ended", occurredAt: minutes(T0, 5) }))).status).toBe(200);
+    const row = await load(org.id);
+    expect(row.subscriptionStatus).toBe("expired");
+    expect(row.planDowngradedAt).not.toBeNull();
+    expect(retentionEligibility(row, new Date())).toEqual({ eligible: false, reason: "downgrade_grace" });
+  });
+
+  it("a replayed cancel (new event id, later time) does not restamp", async () => {
+    const { org, sub } = await legacyPausedThenFailedPayment("f1replay");
+    await send(subscriptionEventBody("subscription.canceled", { subId: sub, orgId: org.id, status: "canceled", occurredAt: minutes(T0, 5) }));
+    const first = (await load(org.id)).planDowngradedAt!;
+    await new Promise((r) => setTimeout(r, 15));
+    await send(subscriptionEventBody("subscription.canceled", { subId: sub, orgId: org.id, status: "canceled", occurredAt: minutes(T0, 6) }));
+    expect((await load(org.id)).planDowngradedAt!.getTime()).toBe(first.getTime());
+  });
+
+  it("a stale cancel (older than the pause) changes nothing: still past_due, still no stamp, still protected", async () => {
+    const { org, sub } = await legacyPausedThenFailedPayment("f1stale");
+    expect((await send(subscriptionEventBody("subscription.canceled", { subId: sub, orgId: org.id, status: "canceled", occurredAt: minutes(T0, 0) }))).status).toBe(200);
+    const row = await load(org.id);
+    expect(row).toMatchObject({ subscriptionStatus: "past_due", planDowngradedAt: null });
+    expect(retentionEligibility(row, new Date())).toEqual({ eligible: false, reason: "billing_anomaly" });
+  });
+
+  it("resume restores the plan and leaves no stamp (there was none)", async () => {
+    const { org, sub } = await legacyPausedThenFailedPayment("f1resume");
+    expect((await send(subscriptionEventBody("subscription.resumed", { subId: sub, orgId: org.id, status: "active", priceId: "pri_growth_test", occurredAt: minutes(T0, 5) }))).status).toBe(200);
+    expect(await load(org.id)).toMatchObject({ plan: "growth", subscriptionStatus: "active", planDowngradedAt: null });
+  });
+
+  it("an organization that never had a subscription is not given a stamp when its first event is an end", async () => {
+    const org = await newOrg("f1never");
+    expect((await send(subscriptionEventBody("subscription.canceled", { subId: `sub_${RUN_ID}_f1never`, orgId: org.id, status: "canceled", occurredAt: minutes(T0, 0) }))).status).toBe(200);
+    const row = await load(org.id);
+    expect(row).toMatchObject({ plan: "free", subscriptionStatus: "cancelled", planDowngradedAt: null });
+    expect(retentionEligibility(row, new Date())).toEqual({ eligible: true }); // always-Free semantics preserved
   });
 });

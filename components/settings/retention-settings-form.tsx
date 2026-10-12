@@ -12,7 +12,10 @@ export function RetentionSettingsForm({
   activityRetentionDays,
   auditRetentionDays,
   securityRetentionDays,
+  planActivityRetentionDays,
 }: {
+  /** The plan's enforced activity window (lib/billing/plans.ts). */
+  planActivityRetentionDays: number;
   activityRetentionDays: number | null;
   auditRetentionDays: number | null;
   securityRetentionDays: number | null;
@@ -25,7 +28,8 @@ export function RetentionSettingsForm({
       {state.success && <Alert tone="success">Saved.</Alert>}
 
       <Alert tone="warning">
-        These settings are configuration only — nothing is automatically deleted yet. See{" "}
+        Your plan&rsquo;s activity history window is {planActivityRetentionDays} days. Automatic deletion of older activity is not
+        switched on yet, and the fields below cannot extend that window. The fields below are configuration only — they delete nothing themselves. See{" "}
         <code>docs/retention.md</code> for what&rsquo;s actually enforced today.
       </Alert>
 
