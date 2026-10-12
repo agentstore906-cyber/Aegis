@@ -61,7 +61,7 @@ export function canCreateWebhook(planId: string | null | undefined): Entitlement
   if (plan.webhooks) return { allowed: true };
   return {
     allowed: false,
-    reason: `Webhooks aren't available on the ${plan.name} plan.`,
+    reason: `Webhooks aren't available on the ${plan.name} plan. Upgrade to the ${PLANS.startup.name} plan to use them.`,
     upgradeTo: "startup",
   };
 }

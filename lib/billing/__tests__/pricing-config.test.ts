@@ -28,7 +28,7 @@ describe("PRICING_PLANS is the single pricing config", () => {
   });
 
   it("keeps the Startup Paddle price id sourced from the real Paddle env config", () => {
-    expect(PLANS.startup.paddlePriceId).toBe(process.env.PADDLE_STARTUP_PRICE_ID ?? null);
+    expect(PLANS.startup.paddlePriceId).toBe(process.env.PADDLE_STARTUP_PRICE_ID?.trim() || null);
   });
 
   it("lib/pricing.ts imports its numbers from lib/billing/plans.ts (no parallel definition)", () => {

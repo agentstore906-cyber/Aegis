@@ -13,17 +13,22 @@ export type PricingPlan = {
 };
 
 /**
- * Numeric claims (agent count, member count, retention days, price) are
- * interpolated from `lib/billing/plans.ts` — the same config
- * `lib/billing/entitlements.ts` actually enforces — so this page can never
- * quietly drift from what the product enforces. Qualitative bullets
- * ("Priority support," "Custom contracts," ...) stay hand-written; there's
- * no entitlement to derive them from.
+ * Every claim on a card is either derived from `lib/billing/plans.ts` — the same config `lib/billing/entitlements.ts`
+ * actually enforces: numeric limits, and the boolean entitlements (`advancedPolicies`, `webhooks`, `auditExport`) via
+ * `granted()` — or is a capability that is available on EVERY plan (so it is listed on Free and never repeated as an
+ * upsell), or is an Enterprise service commitment with no code behind it ("Dedicated support", "Custom contracts").
+ *
+ * Deliberately NOT claimed, because nothing in the backend differs by plan: "full" vs "basic" activity monitoring,
+ * cost tracking / cost analytics tiers, security monitoring tiers, team permissions / RBAC tiers (all six roles exist on
+ * every plan), SSO (only schema columns exist), "advanced security". Do not reintroduce a claim without a plan check
+ * that enforces it; lib/billing/__tests__/pricing-claims.test.ts fails on the known unsupported phrases.
  */
 const agents = (id: keyof typeof PLANS) => (PLANS[id].agentLimit === null ? "Unlimited agents" : `${PLANS[id].agentLimit} agents`);
 const members = (id: keyof typeof PLANS) => (PLANS[id].memberLimit === null ? "Unlimited members" : `${PLANS[id].memberLimit} members`);
 const retention = (id: keyof typeof PLANS) => `${PLANS[id].activityRetentionDays}-day activity history`;
 const price = (id: keyof typeof PLANS) => (PLANS[id].priceCents === null ? "Custom" : formatCurrency(PLANS[id].priceCents!));
+/** A boolean-entitlement bullet that exists only while the plan really has the entitlement. */
+const granted = (has: boolean, label: string): string[] => (has ? [label] : []);
 
 export const PRICING_PLANS: PricingPlan[] = [
   {
@@ -32,7 +37,15 @@ export const PRICING_PLANS: PricingPlan[] = [
     price: price("free"),
     description: "Try Aegis on a small set of agents.",
     cta: "Get started",
-    features: [agents("free"), "Basic activity monitoring", retention("free"), "Basic cost visibility"],
+    features: [
+      agents("free"),
+      members("free"),
+      "Free Risk Scanner",
+      "Activity monitoring",
+      "Policies, approvals and security alerts",
+      "Cost tracking",
+      retention("free"),
+    ],
   },
   {
     id: "startup",
@@ -42,14 +55,12 @@ export const PRICING_PLANS: PricingPlan[] = [
     description: "For teams putting their first agents into production.",
     cta: "Get started",
     features: [
+      "Everything in Free",
       agents("startup"),
-      "Full activity monitoring",
-      "Cost tracking",
-      "Policies",
-      "Approvals",
-      "Alerts",
-      retention("startup"),
       members("startup"),
+      retention("startup"),
+      ...granted(PLANS.startup.advancedPolicies, "Policy conditions (advanced policies)"),
+      ...granted(PLANS.startup.webhooks, "Outbound webhooks"),
     ],
   },
   {
@@ -61,14 +72,11 @@ export const PRICING_PLANS: PricingPlan[] = [
     featured: true,
     cta: "Get started",
     features: [
+      "Everything in Startup",
       agents("growth"),
-      "Advanced policies",
-      "Security monitoring",
-      "Advanced cost analytics",
-      retention("growth"),
-      "Team permissions",
-      "Integrations",
       members("growth"),
+      retention("growth"),
+      ...granted(PLANS.growth.auditExport, "Audit log export"),
     ],
   },
   {
@@ -79,13 +87,10 @@ export const PRICING_PLANS: PricingPlan[] = [
     description: "For organizations running agents at scale.",
     cta: "Get started",
     features: [
+      "Everything in Growth",
       agents("business"),
-      "Advanced RBAC",
-      "Audit exports",
+      members("business"),
       retention("business"),
-      "Advanced security",
-      "SSO-ready architecture",
-      "Priority support",
     ],
   },
   {

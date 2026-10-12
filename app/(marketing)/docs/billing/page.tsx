@@ -16,7 +16,7 @@ export default function BillingDocPage() {
       <h2>Plans</h2>
       <p>
         Free, Startup, Growth, Business, and Enterprise plans differ by agent count, team member count, activity
-        history retention window, and which features (policies, advanced security, audit export, and so on) are
+        history retention window, and which features (policy conditions, outbound webhooks, audit export) are
         available. See <a href="/pricing">Pricing</a> for current limits and prices.
       </p>
 
