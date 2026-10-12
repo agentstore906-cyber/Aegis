@@ -37,6 +37,9 @@ export interface PlanConfig {
   paddlePriceId: string | null;
 }
 
+/** An env value with stray whitespace/newlines (easy to paste) or left empty is treated as exactly what it means: trimmed, or not configured. */
+const envId = (value: string | undefined): string | null => value?.trim() || null;
+
 export const PLANS: Record<PlanId, PlanConfig> = {
   free: {
     id: "free",
@@ -63,8 +66,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     advancedPolicies: true,
     auditExport: false,
     webhooks: true,
-    paddleProductId: process.env.PADDLE_STARTUP_PRODUCT_ID ?? null,
-    paddlePriceId: process.env.PADDLE_STARTUP_PRICE_ID ?? null,
+    paddleProductId: envId(process.env.PADDLE_STARTUP_PRODUCT_ID),
+    paddlePriceId: envId(process.env.PADDLE_STARTUP_PRICE_ID),
   },
   growth: {
     id: "growth",
@@ -77,8 +80,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     advancedPolicies: true,
     auditExport: true,
     webhooks: true,
-    paddleProductId: process.env.PADDLE_GROWTH_PRODUCT_ID ?? null,
-    paddlePriceId: process.env.PADDLE_GROWTH_PRICE_ID ?? null,
+    paddleProductId: envId(process.env.PADDLE_GROWTH_PRODUCT_ID),
+    paddlePriceId: envId(process.env.PADDLE_GROWTH_PRICE_ID),
   },
   business: {
     id: "business",
@@ -91,8 +94,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     advancedPolicies: true,
     auditExport: true,
     webhooks: true,
-    paddleProductId: process.env.PADDLE_BUSINESS_PRODUCT_ID ?? null,
-    paddlePriceId: process.env.PADDLE_BUSINESS_PRICE_ID ?? null,
+    paddleProductId: envId(process.env.PADDLE_BUSINESS_PRODUCT_ID),
+    paddlePriceId: envId(process.env.PADDLE_BUSINESS_PRICE_ID),
   },
   enterprise: {
     id: "enterprise",
@@ -113,6 +116,11 @@ export const PLANS: Record<PlanId, PlanConfig> = {
 export const DEFAULT_PLAN_ID: PlanId = "free";
 
 const PLAN_IDS = Object.keys(PLANS) as PlanId[];
+
+/** True only for a plan id this build defines. Destructive jobs (retention purge) must use this, not `getPlan`'s Free fallback. */
+export function isPlanId(planId: string | null | undefined): planId is PlanId {
+  return PLAN_IDS.includes(planId as PlanId);
+}
 
 /** Always returns a valid plan — an unrecognized/legacy `Organization.plan` string falls back to Free rather than throwing. */
 export function getPlan(planId: string | null | undefined): PlanConfig {

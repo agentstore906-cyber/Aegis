@@ -132,6 +132,17 @@ model Organization {
   currentPeriodStart   DateTime?
   currentPeriodEnd     DateTime?
   cancelAtPeriodEnd    Boolean   @default(false)
+  // Event ordering (lib/billing/subscription-decision.ts). Null = nothing applied yet.
+  //   billingEventAt    Paddle `occurred_at` of the newest subscription.* event applied. A subscription event older
+  //                     than this is stale and ignored, so a late delivery can never overwrite newer state.
+  //   paymentEventAt    Same, for transaction.* events (payment_failed / completed), kept apart because transaction
+  //                     events only touch the payment status.
+  //   planDowngradedAt  When Aegis APPLIED a paid -> free downgrade (processing time, not Paddle's clock). Set once on
+  //                     the transition, never refreshed by repeated/retried events, cleared when a paid plan returns.
+  //                     Starts the retention grace period (lib/retention/activity.ts).
+  billingEventAt   DateTime?
+  paymentEventAt   DateTime?
+  planDowngradedAt DateTime?
 
   // Retention — configuration only. Nothing in the application deletes
   // data automatically based on these; see docs/retention.md. Null means

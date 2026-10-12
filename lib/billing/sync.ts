@@ -5,8 +5,9 @@ import { recordAuditEvent } from "@/lib/audit/service";
 import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
 import { trackEvent } from "@/lib/analytics/track";
 import { attributeToScanner } from "@/lib/scanner/analytics";
-import { DEFAULT_PLAN_ID } from "@/lib/billing/plans";
-import { mapSubscriptionStatus, planIdForPriceId, statusGrantsPaidPlan } from "@/lib/billing/paddle";
+import type { Prisma } from "@prisma/client";
+import { mapSubscriptionStatus } from "@/lib/billing/paddle";
+import { decideSubscriptionSync, decideTransactionOutcome } from "@/lib/billing/subscription-decision";
 
 /** The subset of a Paddle subscription notification this code reads. */
 export interface PaddleSubscriptionAttributes {
@@ -16,6 +17,8 @@ export interface PaddleSubscriptionAttributes {
   cancelAtPeriodEnd?: boolean;
   currentPeriodStart?: string | null;
   currentPeriodEnd?: string | null;
+  /** Paddle's `occurred_at` for this event; drives stale-event rejection (see subscription-decision.ts). */
+  occurredAt?: Date | null;
 }
 
 /**
@@ -30,41 +33,73 @@ export async function syncSubscriptionState(
   organizationId: string,
   subscriptionId: string,
   attributes: PaddleSubscriptionAttributes,
-  eventName: string
-): Promise<void> {
+  eventName: string,
+  now: Date = new Date()
+): Promise<SyncOutcome> {
   const status = mapSubscriptionStatus(attributes.status);
-  const planId = statusGrantsPaidPlan(status) ? planIdForPriceId(attributes.priceId) : DEFAULT_PLAN_ID;
 
-  await prisma.organization.update({
-    where: { id: organizationId },
-    data: {
-      plan: planId,
-      paddleCustomerId: attributes.customerId ?? undefined,
-      paddleSubscriptionId: subscriptionId,
-      paddlePriceId: attributes.priceId ?? undefined,
-      subscriptionStatus: status,
-      billingInterval: "month",
-      currentPeriodStart: attributes.currentPeriodStart ? new Date(attributes.currentPeriodStart) : undefined,
-      currentPeriodEnd: attributes.currentPeriodEnd ? new Date(attributes.currentPeriodEnd) : null,
-      cancelAtPeriodEnd: attributes.cancelAtPeriodEnd === true,
-    },
+  // One transaction per event, serialized per organization by a row lock: two events for the same organization
+  // (concurrent deliveries, retries) are decided one after the other against the committed state, so a stale event
+  // can never slip in between another event's read and write.
+  const outcome = await prisma.$transaction(async (tx) => {
+    await lockOrganization(tx, organizationId);
+    const org = await tx.organization.findUnique({ where: { id: organizationId } });
+    if (!org) return { applied: false, reason: "organization_missing" } as const;
+
+    const decision = decideSubscriptionSync(
+      org,
+      { eventName, subscriptionId, status, priceId: attributes.priceId, occurredAt: attributes.occurredAt ?? null },
+      now
+    );
+    if (decision.kind === "skip") return { applied: false, reason: decision.reason } as const;
+
+    await tx.organization.update({
+      where: { id: organizationId },
+      data: {
+        plan: decision.plan,
+        paddleCustomerId: attributes.customerId ?? undefined,
+        paddleSubscriptionId: subscriptionId,
+        paddlePriceId: attributes.priceId ?? undefined,
+        subscriptionStatus: status,
+        billingInterval: "month",
+        currentPeriodStart: attributes.currentPeriodStart ? new Date(attributes.currentPeriodStart) : undefined,
+        currentPeriodEnd: attributes.currentPeriodEnd ? new Date(attributes.currentPeriodEnd) : null,
+        cancelAtPeriodEnd: attributes.cancelAtPeriodEnd === true,
+        billingEventAt: decision.billingEventAt,
+        planDowngradedAt: decision.planDowngradedAt,
+      },
+    });
+
+    await recordAuditEvent(tx, {
+      organizationId,
+      actorType: "SYSTEM",
+      eventType: AUDIT_EVENT_TYPES.BILLING_PLAN_CHANGED,
+      entityType: "Organization",
+      entityId: organizationId,
+      action: "billing.subscription_synced",
+      metadata: { plan: decision.plan, status, event: eventName, keptPlanForUnmappedPrice: decision.keptPlanForUnmappedPrice },
+    });
+    return { applied: true, plan: decision.plan } as const;
   });
 
-  await recordAuditEvent(prisma, {
-    organizationId,
-    actorType: "SYSTEM",
-    eventType: AUDIT_EVENT_TYPES.BILLING_PLAN_CHANGED,
-    entityType: "Organization",
-    entityId: organizationId,
-    action: "billing.subscription_synced",
-    metadata: { plan: planId, status, event: eventName },
-  });
+  if (!outcome.applied) {
+    console.info(JSON.stringify({ msg: "paddle_subscription_event_ignored", reason: outcome.reason, event: eventName }));
+    return outcome;
+  }
 
   if (eventName === "subscription.created") {
     trackEvent("subscription_started", { organizationId });
     // Free scanner funnel: attribute the subscription to the scan that brought this workspace in (no-op otherwise).
     await attributeToScanner(organizationId, status === "trialing" ? "trial_started" : "subscription_started");
   }
+  return outcome;
+}
+
+export type SyncOutcome = { applied: true; plan: string } | { applied: false; reason: string };
+
+/** Serializes billing writes for one organization. Held until the surrounding transaction ends. */
+async function lockOrganization(tx: Prisma.TransactionClient, organizationId: string): Promise<void> {
+  await tx.$queryRaw`SELECT "id" FROM "organizations" WHERE "id" = ${organizationId} FOR UPDATE`;
 }
 
 /**
@@ -83,35 +118,36 @@ export async function syncSubscriptionState(
 export async function recordTransactionOutcome(
   organizationId: string,
   outcome: "succeeded" | "failed",
-  eventName: string
-): Promise<void> {
-  const organization = await prisma.organization.findUnique({
-    where: { id: organizationId },
-    select: { subscriptionStatus: true },
-  });
-  if (!organization) return;
+  eventName: string,
+  meta: { occurredAt?: Date | null; subscriptionId?: string | null } = {}
+): Promise<SyncOutcome> {
+  const result = await prisma.$transaction(async (tx) => {
+    await lockOrganization(tx, organizationId);
+    const organization = await tx.organization.findUnique({ where: { id: organizationId } });
+    if (!organization) return { applied: false, reason: "organization_missing" } as const;
 
-  const nextStatus =
-    outcome === "failed"
-      ? "past_due"
-      : organization.subscriptionStatus === "past_due"
-        ? "active"
-        : organization.subscriptionStatus;
+    const decision = decideTransactionOutcome(organization, { outcome, subscriptionId: meta.subscriptionId, occurredAt: meta.occurredAt ?? null });
+    if (decision.kind === "skip") return { applied: false, reason: decision.reason } as const;
 
-  if (nextStatus !== organization.subscriptionStatus) {
-    await prisma.organization.update({
-      where: { id: organizationId },
-      data: { subscriptionStatus: nextStatus },
+    if (decision.nextStatus !== organization.subscriptionStatus || decision.paymentEventAt) {
+      await tx.organization.update({
+        where: { id: organizationId },
+        data: { subscriptionStatus: decision.nextStatus, paymentEventAt: decision.paymentEventAt },
+      });
+    }
+
+    await recordAuditEvent(tx, {
+      organizationId,
+      actorType: "SYSTEM",
+      eventType: AUDIT_EVENT_TYPES.BILLING_PLAN_CHANGED,
+      entityType: "Organization",
+      entityId: organizationId,
+      action: outcome === "failed" ? "billing.payment_failed" : "billing.payment_succeeded",
+      metadata: { event: eventName },
     });
-  }
-
-  await recordAuditEvent(prisma, {
-    organizationId,
-    actorType: "SYSTEM",
-    eventType: AUDIT_EVENT_TYPES.BILLING_PLAN_CHANGED,
-    entityType: "Organization",
-    entityId: organizationId,
-    action: outcome === "failed" ? "billing.payment_failed" : "billing.payment_succeeded",
-    metadata: { event: eventName },
+    return { applied: true, plan: organization.plan } as const;
   });
+
+  if (!result.applied) console.info(JSON.stringify({ msg: "paddle_transaction_event_ignored", reason: result.reason, event: eventName }));
+  return result;
 }

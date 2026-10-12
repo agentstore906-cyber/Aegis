@@ -414,11 +414,23 @@ export function statusGrantsPaidPlan(status: BillingStatus): boolean {
   return status === "active" || status === "trialing" || status === "past_due";
 }
 
-/** Reverse lookup: which configured plan does this Paddle price id map to? Unknown -> free. */
+/**
+ * Which configured PAID plan does this Paddle price id belong to — or `null` when it matches none (missing, empty,
+ * or not configured in this deployment). Whitespace is ignored on both sides, so an env value pasted with a trailing
+ * newline still matches the same id checkout sent (checkout trims too). `null` is NOT "free": a subscription that
+ * pays for something Aegis cannot identify must be handled explicitly (lib/billing/subscription-decision.ts), never
+ * quietly treated as a free account.
+ */
+export function resolvePlanForPriceId(priceId: string | undefined | null): PlanId | null {
+  const wanted = priceId?.trim();
+  if (!wanted) return null;
+  const match = (Object.keys(PLANS) as PlanId[]).find((id) => PLANS[id].paddlePriceId?.trim() === wanted);
+  return match ?? null;
+}
+
+/** Display-oriented reverse lookup: unknown -> free. Do not use this to decide what a paying customer gets. */
 export function planIdForPriceId(priceId: string | undefined | null): PlanId {
-  if (!priceId) return DEFAULT_PLAN_ID;
-  const match = (Object.keys(PLANS) as PlanId[]).find((id) => PLANS[id].paddlePriceId === priceId);
-  return match ?? DEFAULT_PLAN_ID;
+  return resolvePlanForPriceId(priceId) ?? DEFAULT_PLAN_ID;
 }
 
 /**
