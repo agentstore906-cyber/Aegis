@@ -174,9 +174,16 @@ https://<your-domain>/api/webhooks/paddle
 
 Copy its signing secret into `PADDLE_WEBHOOK_SECRET`. Subscribe it to at
 least: `subscription.created`, `subscription.updated`,
-`subscription.canceled`, `transaction.completed`,
-`transaction.payment_failed`. Other event types are safely ignored (the
-endpoint acknowledges them with 200 so Paddle doesn't retry them forever).
+`subscription.canceled`, `subscription.paused`, `subscription.resumed`,
+`subscription.past_due`, `transaction.completed`,
+`transaction.payment_failed`. These are exactly the events the handler acts on
+(`HANDLED_EVENTS` in `app/api/webhooks/paddle/route.ts`); every subscription event
+applies the `status` in its payload, so `paused` drops the workspace to Free,
+`resumed` restores the plan, and `past_due` keeps it (dunning window) — per
+Paddle's docs. Other event types (including `subscription.activated`/`trialing`,
+whose semantics were not verified; `subscription.updated` also carries those
+status changes) are safely ignored (the endpoint acknowledges them with 200 so
+Paddle doesn't retry them forever).
 
 The endpoint verifies the `Paddle-Signature` header via the official
 `@paddle/paddle-node-sdk`'s `webhooks.unmarshal` (HMAC-SHA256 of
@@ -184,8 +191,15 @@ The endpoint verifies the `Paddle-Signature` header via the official
 before touching the database (`app/api/webhooks/paddle/route.ts`). Paddle
 notifications carry a stable `event_id`, so replays are deduplicated
 directly on that id (`BillingWebhookEvent` table);
-handling is also written to set absolute state (never deltas), so an
-out-of-order or duplicated event still converges. **Verified with
+handling is also ordered by Paddle's `occurred_at` per organization under a row lock (`Organization.billingEventAt` /
+`paymentEventAt`; stale events and events for a replaced subscription are ignored), so an out-of-order or duplicated event
+cannot overwrite newer state. A **paid** subscription whose price id matches no `PADDLE_*_PRICE_ID` is never turned into
+Free: the endpoint answers 500 (not recorded) so Paddle retries — fix the env var and the retry applies it. A recent
+subscription event that matches no organization also answers 500 (retried for up to 24 h, then acknowledged without being
+recorded so a Paddle replay is still processed). Paddle (official docs): only a prompt `200` is success (answer within 5
+seconds); live accounts retry failures up to 60 times over 3 days, sandbox 3 times in 15 minutes; after that the
+notification is `failed` and can be replayed (same `event_id`, new `notification_id`; notifications are kept 90 days);
+delivery order is not guaranteed and delivery is at-least-once. **Verified with
 signature-verification, idempotency, tenant-isolation and lifecycle tests
 using synthetic events (`app/api/webhooks/paddle/__tests__/route.integration.test.ts`),
 not against a live Paddle account.** Run one real checkout → webhook →

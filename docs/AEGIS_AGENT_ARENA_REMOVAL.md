@@ -81,3 +81,44 @@ Intentional only: this document and the CHANGELOG entry; the original and the dr
 
 Yes: `20261012120000_remove_agent_arena` (see §4). Not browser-verified: the Chrome extension was unavailable, so nav and
 404 behavior were checked by build output and code, not by clicking through the app.
+
+## 10. Before deploying: has this migration already run in production?
+
+Do these read-only checks by a person with database access; nothing here changes data. (Code review cannot answer it:
+the migration is committed in `8c71cef`, so any production build since then has already run it.)
+
+**How migrations run.** `package.json` `build` is `prisma migrate deploy && next build`, and `prisma.config.ts` reads the
+single `DATABASE_URL` of whichever environment is building. So every Vercel build (Production **and Preview**, if a
+Preview's `DATABASE_URL` points at the same database) applies all pending migrations before the app is built. First
+confirm, in the Vercel project's Environment Variables, which database each environment's `DATABASE_URL` targets.
+
+**Checks (run against the production database, e.g. in a Neon SQL editor):**
+
+```sql
+-- 1. Was it applied? (finished_at set, rolled_back_at and logs empty = applied cleanly)
+SELECT migration_name, started_at, finished_at, rolled_back_at, applied_steps_count
+  FROM _prisma_migrations
+ WHERE migration_name IN ('20261012120000_remove_agent_arena', '20261015120000_billing_event_ordering')
+ ORDER BY migration_name;
+
+-- 2. Do the Arena tables still exist? (0 rows = already dropped)
+SELECT table_name FROM information_schema.tables
+ WHERE table_schema = 'public' AND table_name LIKE 'arena\_%';
+SELECT typname FROM pg_type WHERE typname = 'ArenaScorecardStatus';
+
+-- 3. Anything failed or pending? (rows with finished_at IS NULL block `migrate deploy`)
+SELECT migration_name, started_at FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL;
+
+-- 4. If the tables still exist: what would be destroyed?
+SELECT 'arena_scorecards' AS t, count(*) FROM arena_scorecards
+UNION ALL SELECT 'arena_scenario_results', count(*) FROM arena_scenario_results
+UNION ALL SELECT 'arena_challenge_attributions', count(*) FROM arena_challenge_attributions
+UNION ALL SELECT 'arena_analytics_events', count(*) FROM arena_analytics_events;
+```
+
+**Decision table.** Row for the Arena migration with `finished_at` set and no `arena_%` tables: already applied, nothing
+more to do. No row and the tables exist: it will run on the next build — take a backup first (Neon: create a branch /
+note the restore point), decide whether the counts in check 4 are acceptable to lose, and only then deploy. A row with
+`finished_at IS NULL` or `rolled_back_at` set: stop and resolve it (`prisma migrate resolve`) before any deploy.
+
+**Old URLs.** `/arena` and `/a/[slug]` are gone with no redirects and will 404; decide whether any external link needs one.

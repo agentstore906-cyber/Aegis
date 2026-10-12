@@ -8,6 +8,36 @@ security fix is noted as "hardened," not described in exploit detail.
 
 ## Unreleased
 
+- **Pre-deployment hardening (local, nothing deployed, no migration).** Paddle `subscription.paused`, `.resumed` and
+  `.past_due` are now handled (status-driven: paused drops to Free, resumed restores the plan, past_due keeps it) with
+  the same signature, idempotency, ordering, replaced-subscription and fail-closed rules. First-time detectors (new
+  sensitive action / new tool / new namespace) now also consult behavior rollups and earlier alerts
+  (`lib/security/history.ts`), so a retention purge no longer makes old actions look new. The retention purge isolates
+  failures per organization and reports `organizationsFailed` / `failures` (ids and error class only; HTTP 500 when any
+  failed). Pricing cards no longer claim features with no backend difference (full/basic monitoring, security monitoring,
+  cost analytics, team permissions, advanced RBAC, SSO-ready, advanced security); Growth no longer repeats Startup's
+  policy conditions; outbound webhooks (enforced on Startup+) and audit log export (Growth+) are listed where granted.
+- **Paused-subscription retention hold.** A paused subscription's history is held for up to 90 days from
+  `planDowngradedAt` (a paused organization with no timestamp is skipped and counted separately); pausing → cancelled
+  restamps the timestamp so the cancellation grace period still applies. No schema change; the purge is still unscheduled
+  and deletion still off.
+- **Paddle webhook hardening + retention safety.** A paid subscription whose price matches no configured plan no longer
+  silently becomes Free: the plan is left untouched, the event fails (500, not recorded) so Paddle retries, and a repriced
+  legacy subscriber keeps its plan (price ids are matched whitespace-insensitively, as checkout sends them). Recent
+  subscription events that match no organization are retried instead of recorded as processed. Subscription events are
+  applied in order under a per-organization row lock (stale and replaced-subscription events are ignored; stale payment
+  events cannot override newer payment state). New nullable columns `billingEventAt`, `paymentEventAt`,
+  `planDowngradedAt` (migration `20261015120000_billing_event_ordering`, additive). Retention now skips Free
+  organizations with an active/trialing/past_due subscription and waits 14 days after a downgrade. The retention cron is
+  intentionally not scheduled in `vercel.json` yet.
+- **Free plan audit fixes.** Policy conditions ("advanced policies") are now actually gated to Startup+ in the
+  policy repository (create, update, enable), with an upgrade message and a mirrored form state; plan-based activity
+  retention purge code exists (`/api/internal/retention/purge`, dry-run by default; see `docs/retention.md`) but is NOT
+  scheduled — `vercel.json` has no retention cron — so nothing is deleted until it is deliberately enabled, and the first
+  delete run removes existing history older than each plan's window; agent counting is one definition
+  (`lib/agents/quota.ts`) and retired agents are documented to still count toward the limit; the Connect Agent
+  "Upgrade" link is shown only to roles that can open `/upgrade`; the signed-in Free Risk Scanner has a per-agent and
+  per-workspace hourly fair-use limit (configurable); scanner and retention docs rewritten. No migrations.
 - **Agent Arena removed.** The benchmark, scorecards, public `/a/[slug]` pages, `/arena` dashboard and nav entry are gone.
   Migration `20261012120000_remove_agent_arena` drops the four `arena_*` tables and the `ArenaScorecardStatus` enum
   (destructive). See `docs/AEGIS_AGENT_ARENA_REMOVAL.md`.

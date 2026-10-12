@@ -20,6 +20,12 @@ environment needs.
   `PADDLE_GROWTH_PRODUCT_ID` / `PADDLE_GROWTH_PRICE_ID` /
   `PADDLE_BUSINESS_PRODUCT_ID` / `PADDLE_BUSINESS_PRICE_ID` — unset means
   billing shows "not configured," every org stays on Free.
+- `CRON_SECRET` — bearer secret for the internal cron routes (`/api/internal/behavior/refresh`,
+  `/api/internal/retention/purge`). Unset means those routes answer 503 (fail closed).
+- `AEGIS_RETENTION_PURGE_ENABLED` — must be exactly `true` for `?mode=delete` on the retention route to delete
+  anything. Unset (the default) means the route can only dry-run. See `docs/retention.md`.
+- `AEGIS_AGENT_SCAN_AGENT_HOURLY_LIMIT` / `AEGIS_AGENT_SCAN_ORG_HOURLY_LIMIT` — optional positive integers overriding the
+  Free Risk Scanner fair-use limits (defaults 10 per agent and 30 per workspace per hour).
 - `NEXT_PUBLIC_CONTACT_EMAIL` — unset means the `/trust` responsible-disclosure
   section and `/contact` say so explicitly instead of showing a broken/fake
   contact path (`app/(marketing)/trust/page.tsx`).
