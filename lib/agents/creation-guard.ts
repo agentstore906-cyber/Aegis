@@ -3,6 +3,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import { canCreateAgent, type EntitlementResult } from "@/lib/billing/entitlements";
+import { countAgentsTowardLimit } from "@/lib/agents/quota";
 
 /**
  * The plan's agent limit, checked race-safely (P0 §8). Must be called inside
@@ -19,7 +20,7 @@ export async function checkAgentLimitLocked(
   const lockKey = `agent_create:${organizationId}`;
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
   const [agentCount, organization] = await Promise.all([
-    tx.agent.count({ where: { organizationId } }),
+    countAgentsTowardLimit(tx, organizationId),
     tx.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { plan: true } }),
   ]);
   return canCreateAgent(organization.plan, agentCount);

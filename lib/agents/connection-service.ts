@@ -13,6 +13,7 @@ import {
 } from "@/lib/connectors/crypto";
 import type { ConnectorCapabilities, DiscoveredAgent } from "@/lib/connectors/types";
 import { canCreateAgent, canCreateApiKey } from "@/lib/billing/entitlements";
+import { countAgentsTowardLimit } from "@/lib/agents/quota";
 import { AgentLimitReachedError, checkAgentLimitLocked } from "@/lib/agents/creation-guard";
 import * as apiKeyRepo from "@/lib/api-keys/repository";
 import { recordAuditEvent } from "@/lib/audit/service";
@@ -124,7 +125,7 @@ export async function connectProviderAgent(input: ConnectProviderAgentInput): Pr
   // authoritative one — that's re-done under a lock inside the creating
   // transaction below (lib/agents/creation-guard.ts).
   const [agentCount, organization] = await Promise.all([
-    prisma.agent.count({ where: { organizationId: input.organizationId } }),
+    countAgentsTowardLimit(prisma, input.organizationId),
     prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId }, select: { plan: true } }),
   ]);
   const entitlement = canCreateAgent(organization.plan, agentCount);

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
 import { countPlanLimitedApiKeys } from "@/lib/api-keys/repository";
+import { countAgentsTowardLimit } from "@/lib/agents/quota";
 import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { canViewBilling, canManageBilling } from "@/lib/billing/authorization";
 import { getPlan } from "@/lib/billing/plans";
@@ -42,7 +43,7 @@ export default async function BillingPage({
   const { checkout } = await searchParams;
 
   const [agentCount, memberCount, apiKeyCount] = await Promise.all([
-    prisma.agent.count({ where: { organizationId: organization.id } }),
+    countAgentsTowardLimit(prisma, organization.id),
     prisma.organizationMember.count({ where: { organizationId: organization.id } }),
     countPlanLimitedApiKeys(organization.id),
   ]);

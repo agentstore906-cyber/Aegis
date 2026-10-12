@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { requireActiveOrganization } from "@/lib/organizations/queries";
-import { canViewBilling, canManageBilling } from "@/lib/billing/authorization";
+import { canAccessUpgradePage, canManageBilling } from "@/lib/billing/authorization";
 import { getPlan } from "@/lib/billing/plans";
 import { isBillingConfigured } from "@/lib/billing/paddle";
 import { buildAuthenticatedPlanCtas } from "@/lib/billing/upgrade-ctas";
@@ -26,7 +26,7 @@ export const metadata: Metadata = { title: "Upgrade" };
  */
 export default async function UpgradePage() {
   const { organization, role } = await requireActiveOrganization();
-  if (!canViewBilling(role)) notFound();
+  if (!canAccessUpgradePage(role)) notFound();
 
   const plan = getPlan(organization.plan);
   const configured = isBillingConfigured();

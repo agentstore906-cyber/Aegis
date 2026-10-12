@@ -11,6 +11,7 @@ import { contactAgent, EndpointError, type EndpointFailureCode } from "@/lib/con
 import { normalizeEndpointUrl } from "@/lib/connectors/endpoint-protocol";
 import { encryptCredential, maskCredential } from "@/lib/connectors/crypto";
 import { canCreateAgent } from "@/lib/billing/entitlements";
+import { countAgentsTowardLimit } from "@/lib/agents/quota";
 import { recordAuditEvent } from "@/lib/audit/service";
 import { AUDIT_EVENT_TYPES } from "@/lib/audit/types";
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
@@ -99,7 +100,7 @@ export async function connectEndpointAgent(input: {
 
   // 3. A new real agent. The friendly check first; the authoritative one is under a lock inside the transaction.
   const [agentCount, organization] = await Promise.all([
-    prisma.agent.count({ where: { organizationId: input.organizationId } }),
+    countAgentsTowardLimit(prisma, input.organizationId),
     prisma.organization.findUniqueOrThrow({ where: { id: input.organizationId }, select: { plan: true } }),
   ]);
   const entitlement = canCreateAgent(organization.plan, agentCount);
