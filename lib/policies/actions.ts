@@ -13,6 +13,7 @@ import { policySchema } from "@/lib/validation/policy";
 import { policyTesterSchema } from "@/lib/validation/tester";
 import * as repo from "@/lib/policies/repository";
 import { DuplicatePermissionError } from "@/lib/policies/repository";
+import { AdvancedPolicyNotAllowedError } from "@/lib/policies/entitlement";
 import { evaluateAgentAction } from "@/lib/policies/evaluate";
 import { simulateAgentAction, type SimulationResult } from "@/lib/control/simulate";
 import { canViewSecurityAlerts } from "@/lib/security/authorization";
@@ -259,21 +260,27 @@ export async function createPolicyAction(
     if (!agent) return { error: "Selected agent was not found in this organization." };
   }
 
-  const policy = await prisma.$transaction(async (tx) => {
-    const policy = await repo.createPolicy(organization.id, user.id, parsed.data, tx);
-    await recordAuditEvent(tx, {
-      organizationId: organization.id,
-      actorType: "USER",
-      actorUserId: user.id,
-      agentId: policy.agentId,
-      eventType: AUDIT_EVENT_TYPES.POLICY_CREATED,
-      entityType: "Policy",
-      entityId: policy.id,
-      action: policy.action,
-      metadata: { name: policy.name, decision: policy.decision, severity: policy.severity },
+  let policy;
+  try {
+    policy = await prisma.$transaction(async (tx) => {
+      const policy = await repo.createPolicy(organization.id, user.id, parsed.data, tx);
+      await recordAuditEvent(tx, {
+        organizationId: organization.id,
+        actorType: "USER",
+        actorUserId: user.id,
+        agentId: policy.agentId,
+        eventType: AUDIT_EVENT_TYPES.POLICY_CREATED,
+        entityType: "Policy",
+        entityId: policy.id,
+        action: policy.action,
+        metadata: { name: policy.name, decision: policy.decision, severity: policy.severity },
+      });
+      return policy;
     });
-    return policy;
-  });
+  } catch (error) {
+    if (error instanceof AdvancedPolicyNotAllowedError) return { error: error.message };
+    throw error;
+  }
 
   trackEvent("policy_created", { organizationId: organization.id });
   revalidatePath("/policies");
@@ -300,22 +307,28 @@ export async function updatePolicyAction(
     if (!agent) return { error: "Selected agent was not found in this organization." };
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const updated = await repo.updatePolicy(organization.id, policyId, parsed.data, tx);
-    if (!updated) return null;
-    await recordAuditEvent(tx, {
-      organizationId: organization.id,
-      actorType: "USER",
-      actorUserId: user.id,
-      agentId: updated.agentId,
-      eventType: AUDIT_EVENT_TYPES.POLICY_UPDATED,
-      entityType: "Policy",
-      entityId: updated.id,
-      action: updated.action,
-      metadata: { name: updated.name, decision: updated.decision, severity: updated.severity },
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const updated = await repo.updatePolicy(organization.id, policyId, parsed.data, tx);
+      if (!updated) return null;
+      await recordAuditEvent(tx, {
+        organizationId: organization.id,
+        actorType: "USER",
+        actorUserId: user.id,
+        agentId: updated.agentId,
+        eventType: AUDIT_EVENT_TYPES.POLICY_UPDATED,
+        entityType: "Policy",
+        entityId: updated.id,
+        action: updated.action,
+        metadata: { name: updated.name, decision: updated.decision, severity: updated.severity },
+      });
+      return updated;
     });
-    return updated;
-  });
+  } catch (error) {
+    if (error instanceof AdvancedPolicyNotAllowedError) return { error: error.message };
+    throw error;
+  }
   if (!updated) return { error: "Policy not found" };
 
   revalidatePath("/policies");
@@ -323,7 +336,7 @@ export async function updatePolicyAction(
   redirect(`/policies`);
 }
 
-export async function setPolicyStatusAction(policyId: string, status: "ACTIVE" | "DISABLED") {
+export async function setPolicyStatusAction(policyId: string, status: "ACTIVE" | "DISABLED"): Promise<PolicyFormState> {
   const { organization, user, role } = await requireActiveOrganization();
   if (!canManagePolicies(role)) {
     throw new Error("You don't have permission to manage policies.");
@@ -331,24 +344,30 @@ export async function setPolicyStatusAction(policyId: string, status: "ACTIVE" |
 
   const policy = await repo.getPolicy(organization.id, policyId);
 
-  await prisma.$transaction(async (tx) => {
-    const changed = await repo.setPolicyStatus(organization.id, policyId, status, tx);
-    if (changed && policy) {
-      await recordAuditEvent(tx, {
-        organizationId: organization.id,
-        actorType: "USER",
-        actorUserId: user.id,
-        agentId: policy.agentId,
-        eventType: status === "ACTIVE" ? AUDIT_EVENT_TYPES.POLICY_ENABLED : AUDIT_EVENT_TYPES.POLICY_DISABLED,
-        entityType: "Policy",
-        entityId: policy.id,
-        action: policy.action,
-        metadata: { name: policy.name },
-      });
-    }
-  });
+  try {
+    await prisma.$transaction(async (tx) => {
+      const changed = await repo.setPolicyStatus(organization.id, policyId, status, tx);
+      if (changed && policy) {
+        await recordAuditEvent(tx, {
+          organizationId: organization.id,
+          actorType: "USER",
+          actorUserId: user.id,
+          agentId: policy.agentId,
+          eventType: status === "ACTIVE" ? AUDIT_EVENT_TYPES.POLICY_ENABLED : AUDIT_EVENT_TYPES.POLICY_DISABLED,
+          entityType: "Policy",
+          entityId: policy.id,
+          action: policy.action,
+          metadata: { name: policy.name },
+        });
+      }
+    });
+  } catch (error) {
+    if (error instanceof AdvancedPolicyNotAllowedError) return { error: error.message };
+    throw error;
+  }
 
   revalidatePath("/policies");
+  return {};
 }
 
 export async function deletePolicyAction(policyId: string) {

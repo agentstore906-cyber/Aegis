@@ -12,6 +12,7 @@ import type {
 
 import { prisma, type PrismaOrTx } from "@/lib/db";
 import type { PolicyWithConditions } from "@/lib/policies/matcher";
+import { assertAdvancedPolicyAllowed, policyUsesAdvancedFeatures } from "@/lib/policies/entitlement";
 
 export class DuplicatePermissionError extends Error {
   constructor() {
@@ -182,6 +183,7 @@ export async function createPolicy(
   client: PrismaOrTx = prisma
 ) {
   const { conditions, ...policyFields } = input;
+  await assertAdvancedPolicyAllowed(client, organizationId, policyUsesAdvancedFeatures({ conditions }));
   return client.policy.create({
     data: {
       organizationId,
@@ -213,6 +215,9 @@ export async function updatePolicy(
     const existing = await tx.policy.findFirst({ where: { id, organizationId } });
     if (!existing) return null;
 
+    // Saving a policy that still has conditions is "using" advanced policies; removing them is always allowed.
+    await assertAdvancedPolicyAllowed(tx, organizationId, policyUsesAdvancedFeatures({ conditions }));
+
     await tx.policyCondition.deleteMany({ where: { policyId: id } });
 
     return tx.policy.update({
@@ -231,6 +236,12 @@ export async function setPolicyStatus(
   status: PolicyStatus,
   client: PrismaOrTx = prisma
 ) {
+  // Enabling a policy that has conditions (e.g. one kept from a higher plan) needs the plan that includes them.
+  // Disabling is always allowed — it only makes an organization safer to leave as-is, never grants a feature.
+  if (status === "ACTIVE") {
+    const conditionCount = await client.policyCondition.count({ where: { policy: { id, organizationId } } });
+    await assertAdvancedPolicyAllowed(client, organizationId, conditionCount > 0);
+  }
   const result = await client.policy.updateMany({ where: { id, organizationId }, data: { status } });
   return result.count > 0;
 }

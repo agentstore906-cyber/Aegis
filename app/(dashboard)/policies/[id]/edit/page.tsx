@@ -6,6 +6,8 @@ import { canManagePolicies } from "@/lib/policies/authorization";
 import { listAllAgentsForOrg } from "@/lib/agents/queries";
 import { getPolicy } from "@/lib/policies/repository";
 import { updatePolicyAction } from "@/lib/policies/actions";
+import { policyConditionsLock } from "@/lib/policies/entitlement";
+import { canAccessUpgradePage } from "@/lib/billing/authorization";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { PolicyForm } from "@/components/policies/policy-form";
@@ -29,7 +31,13 @@ export default async function EditPolicyPage({ params }: { params: Promise<{ id:
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader title={`Edit ${policy.name}`} description="Update this policy's scope and conditions." />
-      <PolicyForm policy={policy} conditions={policy.conditions} agents={agents} action={boundAction} />
+      <PolicyForm
+        policy={policy}
+        conditions={policy.conditions}
+        agents={agents}
+        action={boundAction}
+        conditionsLock={policyConditionsLock(organization.plan, canAccessUpgradePage(role))}
+      />
     </div>
   );
 }

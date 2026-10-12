@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Pencil, Trash2, Power } from "lucide-react";
 import { ButtonLink, Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -17,9 +17,16 @@ export function PolicyRowActions({
   status: PolicyStatus;
 }) {
   const [isPending, startTransition] = useTransition();
+  // The server is the authority (a plan can refuse to enable a policy); show its reason instead of failing silently.
+  const [error, setError] = useState<string | null>(null);
 
   return (
-    <div className="flex items-center justify-end gap-1">
+    <div className="flex flex-wrap items-center justify-end gap-1">
+      {error && (
+        <p role="alert" className="basis-full text-right text-xs text-danger">
+          {error}
+        </p>
+      )}
       <Button
         variant="ghost"
         size="sm"
@@ -28,8 +35,9 @@ export function PolicyRowActions({
         aria-label={status === "ACTIVE" ? `Disable ${name}` : `Enable ${name}`}
         title={status === "ACTIVE" ? "Disable" : "Enable"}
         onClick={() =>
-          startTransition(() => {
-            setPolicyStatusAction(policyId, status === "ACTIVE" ? "DISABLED" : "ACTIVE");
+          startTransition(async () => {
+            const result = await setPolicyStatusAction(policyId, status === "ACTIVE" ? "DISABLED" : "ACTIVE");
+            setError(result.error ?? null);
           })
         }
       >

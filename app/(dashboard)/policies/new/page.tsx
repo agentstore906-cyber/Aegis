@@ -5,6 +5,8 @@ import { requireActiveOrganization } from "@/lib/organizations/queries";
 import { canManagePolicies } from "@/lib/policies/authorization";
 import { listAllAgentsForOrg } from "@/lib/agents/queries";
 import { createPolicyAction } from "@/lib/policies/actions";
+import { policyConditionsLock } from "@/lib/policies/entitlement";
+import { canAccessUpgradePage } from "@/lib/billing/authorization";
 import type { Policy, PolicyDecision, RiskLevel, SecurityAlertSeverity } from "@prisma/client";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -37,7 +39,7 @@ export default async function NewPolicyPage({ searchParams }: { searchParams: Pr
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader title="Create policy" description="Turn a rule into an agent guardrail." />
-      <PolicyForm agents={agents} action={createPolicyAction} policy={prefill} />
+      <PolicyForm agents={agents} action={createPolicyAction} policy={prefill} conditionsLock={policyConditionsLock(organization.plan, canAccessUpgradePage(role))} />
     </div>
   );
 }

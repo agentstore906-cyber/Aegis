@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { Label, Input, Textarea, Select, FieldHint } from "@/components/ui/field";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
+import { UpgradeLink } from "@/components/billing/upgrade-link";
 import { ConditionEditor, type EditableCondition } from "@/components/policies/condition-editor";
 import { describePolicy } from "@/lib/policies/describe";
 import { POLICY_DECISIONS, POLICY_SEVERITIES, POLICY_STATUSES } from "@/lib/validation/policy";
@@ -27,12 +28,15 @@ export function PolicyForm({
   conditions,
   agents,
   action,
+  conditionsLock,
 }: {
   /** A full Policy when editing, or a partial set of prefilled defaults (e.g. from a Security Alert's "Create policy" link). */
   policy?: Partial<Policy>;
   conditions?: PolicyCondition[];
   agents: AgentOption[];
   action: (prevState: PolicyFormState, formData: FormData) => Promise<PolicyFormState>;
+  /** Set when the plan does not include policy conditions. Mirrors the server rule (lib/policies/entitlement.ts); the server enforces it either way. */
+  conditionsLock?: { message: string; canUpgrade: boolean };
 }) {
   const [state, formAction, pending] = useActionState(action, initialState);
 
@@ -249,7 +253,14 @@ export function PolicyForm({
 
       <div className="space-y-3 rounded-lg border border-border bg-surface p-5">
         <p className="text-sm font-medium text-muted-foreground">Conditions</p>
-        <ConditionEditor initial={editableConditions} onChange={setEditableConditions} />
+        {conditionsLock && (
+          <Alert tone="warning">
+            {conditionsLock.message} <UpgradeLink canUpgrade={conditionsLock.canUpgrade} suffix="to use conditions." />
+            {editableConditions.length > 0 && " This policy has conditions: remove them to save it on this plan."}
+          </Alert>
+        )}
+        {/* Locked and no conditions yet: nothing to edit. Locked with existing conditions: keep the editor so they can be removed. */}
+        {(!conditionsLock || editableConditions.length > 0) && <ConditionEditor initial={editableConditions} onChange={setEditableConditions} />}
       </div>
 
       {preview && (
