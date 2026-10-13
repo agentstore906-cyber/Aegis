@@ -8,6 +8,9 @@ security fix is noted as "hardened," not described in exploit detail.
 
 ## Unreleased
 
+- **Security hardening (sign-in throttling, outbound webhooks).** Sign-in throttling is now enforced where credentials are verified, so it also covers the Auth.js credentials route (previously only the sign-in form action); outbound webhook delivery now connects only to a validated public address, never follows redirects, and has a total deadline and response cap. IPv6 private-range detection was tightened.
+- **Security hardening (client IP trust, webhook plan gate).** Rate limits no longer trust a raw client-supplied forwarding header: Vercel's platform header is used, other hosts declare `AEGIS_TRUSTED_PROXY_HOPS`, and otherwise no address is trusted. Outbound webhook delivery now re-checks the organization's current plan before every attempt and retry.
+- **Rate-limit client IP follow-ups.** IPv4-mapped IPv6 addresses now share the plain IPv4 client's bucket instead of collapsing into one IPv6 /64; `ip:port` and `[ipv6]:port` forms from trusted headers are parsed; and when no trustworthy client IP exists, sign-in, sign-up and the lead form no longer share one global bucket (per-email limits apply instead, with a one-time `client_ip_untrusted` warning).
 - **Pre-deployment hardening (local, nothing deployed, no migration).** Paddle `subscription.paused`, `.resumed` and
   `.past_due` are now handled (status-driven: paused drops to Free, resumed restores the plan, past_due keeps it) with
   the same signature, idempotency, ordering, replaced-subscription and fail-closed rules. First-time detectors (new

@@ -5,19 +5,19 @@ import { signUpSchema } from "@/lib/validation/auth";
 import { hashPassword } from "@/lib/auth/password";
 import { signIn, signOut } from "@/lib/auth";
 import { trackEvent } from "@/lib/analytics/track";
+import { SignInRateLimitedError, SIGN_IN_RATE_LIMITED_MESSAGE } from "@/lib/auth/sign-in-limit";
+import { consumeClientLimit } from "@/lib/rate-limit/client-key";
 import { getClientIp } from "@/lib/http/client-ip";
 import { createRateLimiter } from "@/lib/rate-limit/postgres";
 
 /**
- * In-process, per-IP throttles on the two unauthenticated auth entry points.
- * Same known limitation as `apiRateLimiter` (lib/rate-limit/limiter.ts) and
- * `leadRateLimiter` (lib/leads/service.ts): state isn't shared across
- * instances, so a multi-instance deployment lets each instance independently
- * allow up to the limit. Swap in a Redis-backed `RateLimiter` for that case —
- * no call site here would need to change.
+ * Per-IP throttle on account creation. (Sign-in throttling lives in lib/auth/sign-in-limit.ts, enforced inside
+ * `authorize` so it also covers the Auth.js credentials route.) Shared across instances when RATE_LIMIT_BACKEND=postgres,
+ * the production default.
  */
-const signInRateLimiter = createRateLimiter("auth.sign_in", 10, 10 * 60 * 1000); // 10 attempts / 10 min / IP — generous for a real user, useless for scripted guessing
 const signUpRateLimiter = createRateLimiter("auth.sign_up", 5, 60 * 60 * 1000); // 5 accounts / hour / IP — mirrors the leads form's anti-spam threshold
+// Used INSTEAD of the per-IP limiter when no trustworthy client IP exists (never a shared "unknown" bucket; see lib/rate-limit/client-key.ts).
+const signUpEmailLimiter = createRateLimiter("auth.sign_up.email", 3, 60 * 60 * 1000);
 
 export type SignUpState = {
   error?: string;
@@ -28,7 +28,7 @@ export async function signUpAction(
   formData: FormData
 ): Promise<SignUpState> {
   const ip = await getClientIp();
-  const rateLimit = await signUpRateLimiter.consume(ip);
+  const rateLimit = await consumeClientLimit({ ip, ipLimiter: signUpRateLimiter, emailLimiter: signUpEmailLimiter, email: formData.get("email") });
   if (!rateLimit.allowed) {
     return { error: "Too many sign-up attempts. Please try again later." };
   }
@@ -81,12 +81,6 @@ export async function signInAction(
   _prevState: SignInState,
   formData: FormData
 ): Promise<SignInState> {
-  const ip = await getClientIp();
-  const rateLimit = await signInRateLimiter.consume(ip);
-  if (!rateLimit.allowed) {
-    return { error: "Too many sign-in attempts. Please try again later." };
-  }
-
   const email = formData.get("email");
   const password = formData.get("password");
 
@@ -97,6 +91,9 @@ export async function signInAction(
       redirectTo: "/agents",
     });
   } catch (error) {
+    if (error instanceof SignInRateLimitedError || (error as { code?: unknown } | null)?.code === "rate_limited") {
+      return { error: SIGN_IN_RATE_LIMITED_MESSAGE };
+    }
     if (error && typeof error === "object" && "type" in error) {
       return { error: "Invalid email or password" };
     }

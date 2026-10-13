@@ -1,10 +1,15 @@
 import "server-only";
 
 import { createRateLimiter } from "@/lib/rate-limit/postgres";
+import { consumeClientLimit } from "@/lib/rate-limit/client-key";
 import { createLeadSchema } from "@/lib/validation/lead";
 import * as repo from "@/lib/leads/repository";
 
-/** 5 submissions/hour per IP — generous for a real prospect, useless to a bot doing volume. */
+/**
+ * 5 submissions/hour per IP — generous for a real prospect, useless to a bot doing volume. When no trustworthy client IP
+ * exists there is no per-IP bucket (a shared one could be exhausted to block every prospect); the per-email cap below
+ * (3 per 24 h, stored in the database) is the control that remains. See lib/rate-limit/client-key.ts.
+ */
 const leadRateLimiter = createRateLimiter("leads", 5, 60 * 60 * 1000);
 
 export type SubmitLeadResult = { ok: true; id: string } | { ok: false; error: string };
@@ -27,7 +32,7 @@ export async function submitLead(raw: Record<string, unknown>, honeypot: string,
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid submission" };
   }
 
-  const rateLimit = await leadRateLimiter.consume(ip);
+  const rateLimit = await consumeClientLimit({ ip, ipLimiter: leadRateLimiter });
   if (!rateLimit.allowed) {
     return { ok: false, error: "Too many submissions. Please try again later or email us directly." };
   }

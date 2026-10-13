@@ -3,8 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 
 import { prisma } from "@/lib/db";
-import { signInSchema } from "@/lib/validation/auth";
-import { verifyPassword } from "@/lib/auth/password";
+import { authorizeCredentials } from "@/lib/auth/credentials";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -30,19 +29,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      authorize: async (raw) => {
-        const parsed = signInSchema.safeParse(raw);
-        if (!parsed.success) return null;
-
-        const { email, password } = parsed.data;
-        const user = await prisma.user.findUnique({ where: { email } });
-        if (!user?.passwordHash) return null;
-
-        const isValid = await verifyPassword(password, user.passwordHash);
-        if (!isValid) return null;
-
-        return { id: user.id, name: user.name, email: user.email, image: user.image };
-      },
+      authorize: (raw, request) => authorizeCredentials(raw, request),
     }),
   ],
   callbacks: {

@@ -91,6 +91,30 @@ for agents that stay quiet; reads re-evaluate when stale as well.
 (default in production: counters shared across instances in the
 `rate_limit_buckets` table) or `memory` (default elsewhere).
 
+**Client IP for rate limits (sign-in, sign-up, leads).** Aegis never trusts a raw
+client-supplied `X-Forwarded-For`. On Vercel (`VERCEL=1`, set by the platform) it
+uses the platform-set `x-vercel-forwarded-for` / `x-real-ip`. On any other host
+you MUST set `AEGIS_TRUSTED_PROXY_HOPS=N` (1-5) to the number of reverse proxies
+you run in front of the app; the N-th entry from the right of `X-Forwarded-For`
+is then used. Accepted address forms from a trusted source: `1.2.3.4`,
+`1.2.3.4:port`, `2001:db8::1`, `[2001:db8::1]`, `[2001:db8::1]:port`. IPv4-mapped
+IPv6 (`::ffff:1.2.3.4`) is treated as the plain IPv4 address; other IPv6 clients
+are keyed by /64. NOT supported (treated as "no trusted address"): hostnames,
+RFC 7239 `Forwarded:` headers, `for=` tokens, NAT64 (`64:ff9b::/96`) and
+IPv4-compatible (`::1.2.3.4`) addresses, and a bare IPv6 address with a port.
+
+With NO trusted address (not on Vercel and no `AEGIS_TRUSTED_PROXY_HOPS`, or the
+platform header is missing) there is no per-IP limiting, and, deliberately, no
+shared "unknown" bucket either (anyone could exhaust it and block every user).
+Sign-in is limited per account (8 attempts / 10 min per email), sign-up per email
+(3 / hour), and the lead form by its existing per-email cap (3 / 24 h). The
+trade-off: an attacker can rotate emails to get past per-email limits, and can slow
+one victim's own sign-in attempts. Unattended abuse volume is then bounded only by
+your platform's own protections. A `client_ip_untrusted` warning is logged once per
+process when this happens; treat it as a misconfiguration. `RATE_LIMIT_BACKEND=memory`
+in production makes every limit per-instance and nearly meaningless; leave the
+default (`postgres`). The Postgres limiter FAILS OPEN on a database error.
+
 **Development only — integration tests (P0).** `DATABASE_URL_TEST` must
 point at a separate, disposable database whose name contains `test`
 (non-local hosts also need `AEGIS_ALLOW_REMOTE_TEST_DB=<host>`). Without it,

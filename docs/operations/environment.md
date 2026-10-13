@@ -20,6 +20,9 @@ environment needs.
   `PADDLE_GROWTH_PRODUCT_ID` / `PADDLE_GROWTH_PRICE_ID` /
   `PADDLE_BUSINESS_PRODUCT_ID` / `PADDLE_BUSINESS_PRICE_ID` — unset means
   billing shows "not configured," every org stays on Free.
+- `AEGIS_TRUSTED_PROXY_HOPS` — number (1-5) of reverse proxies in front of the app on a NON-Vercel host. Needed for
+  per-IP rate limits to see real client addresses; unset = forwarding headers are ignored and limits fall back to per-email
+  only, with a `client_ip_untrusted` warning (see `docs/deployment.md` for accepted address formats). Ignored on Vercel.
 - `CRON_SECRET` — bearer secret for the internal cron routes (`/api/internal/behavior/refresh`,
   `/api/internal/retention/purge`). Unset means those routes answer 503 (fail closed).
 - `AEGIS_RETENTION_PURGE_ENABLED` — must be exactly `true` for `?mode=delete` on the retention route to delete

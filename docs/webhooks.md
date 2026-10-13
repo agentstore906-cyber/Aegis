@@ -22,14 +22,24 @@ registry — bump it if the envelope shape ever changes incompatibly (spec
 
 ## Security
 
-- **SSRF protection** (`lib/webhooks/ssrf.ts#assertSafeWebhookUrl`):
+- **SSRF protection** (`lib/webhooks/ssrf.ts#resolveSafeWebhookTarget`, delivery in `lib/webhooks/safe-post.ts`):
   HTTPS required (an explicit `localhost`/`127.0.0.1`/`::1` carve-out
-  exists outside production, for local testing); the hostname must
-  resolve to a public IP — loopback, RFC 1918 private ranges, link-local,
-  CGNAT, benchmarking, and multicast/reserved ranges are all rejected, for
-  both IPv4 and IPv6. Checked **twice**: once at endpoint-creation time,
-  and again immediately before every delivery attempt, since a DNS answer
-  can change between the two.
+  exists outside production, for local testing); no `user:pass@` in the URL;
+  EVERY address the hostname resolves to must be public — loopback, RFC 1918
+  private ranges, link-local (including the 169.254.169.254 metadata
+  address), CGNAT, documentation/benchmarking, multicast and reserved
+  ranges, and, for IPv6, unique-local, link-local, site-local, multicast and
+  every IPv4-embedding form (IPv4-mapped, NAT64, 6to4, Teredo). Checked at
+  endpoint-creation time and again before **every delivery attempt**. The
+  connection is then made to the address that was checked (no second DNS
+  lookup, so DNS rebinding cannot swap in an internal address), **redirects
+  are never followed** (a 3xx is recorded as a failed delivery), and each
+  attempt has one overall 5 s deadline and a capped, discarded response body.
+- **Plan eligibility at delivery time** (`lib/webhooks/dispatch.ts#webhooksEntitled`): endpoints can only be created on a
+  plan with webhooks (Startup and above), and delivery re-checks the organization's *current* plan before the first
+  attempt and before every retry. A downgraded organization's endpoints stay stored (and can be deleted) but receive
+  nothing; an unknown plan, a missing organization or a failed lookup also means "do not deliver". Skips are logged
+  as `webhook_delivery_skipped_plan` / `webhook_retry_skipped_plan` (ids only).
 - **Signing**: each endpoint gets a random `whsec_...` secret at creation
   (shown once, like an API key — `lib/webhooks/crypto.ts`). Every delivery
   is HMAC-SHA256-signed over the exact raw JSON body and sent as
