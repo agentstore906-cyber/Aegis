@@ -1,11 +1,11 @@
+
 import "dotenv/config";
-import { defineConfig, env } from "prisma/config";
+import { defineConfig } from "prisma/config";
 
 /**
- * Prisma 7 config file — replaces the `datasource.url` that used to live in
- * schema.prisma. Only the CLI (migrate/generate/studio) reads this; the
- * running app still connects via the @prisma/adapter-pg instance built in
- * lib/db.ts, not through anything here.
+ * Prisma configuration.
+ * DATABASE_URL is required when running migrations,
+ * but not necessarily when generating the Prisma client.
  */
 export default defineConfig({
   schema: "prisma/schema.prisma",
@@ -14,6 +14,6 @@ export default defineConfig({
     seed: "tsx prisma/seed.ts",
   },
   datasource: {
-    url: env("DATABASE_URL"),
+    url: process.env.DATABASE_URL,
   },
 });

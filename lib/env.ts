@@ -1,3 +1,5 @@
+import "server-only";
+
 import { z } from "zod";
 
 /**
@@ -37,6 +39,7 @@ const envSchema = z.object({
 
 const parsed = envSchema.safeParse(process.env);
 
+// Issue messages name the variable only; values are never echoed back.
 if (!parsed.success) {
   const missing = parsed.error.issues.map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`).join("\n");
   throw new Error(
